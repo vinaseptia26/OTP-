@@ -1,0 +1,31 @@
+{
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "my-otp-kmj",
+          "appId": "1:523195431607:android:da4fb9b9df4db5c2686b32",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "my-otp-kmj",
+          "configurations": {
+            "android": "1:523195431607:android:da4fb9b9df4db5c2686b32",
+            "ios": "1:523195431607:ios:b971596b6d0b8e9d686b32",
+            "macos": "1:523195431607:ios:b971596b6d0b8e9d686b32",
+            "web": "1:523195431607:web:b70a780842a127f7686b32",
+            "windows": "1:523195431607:web:b5eb63d3164ed9ca686b32"
+          }
+        }
+      }
+    }
+  },
+  "firestore": {
+    "database": "(default)",
+    "location": "asia-southeast2",
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  }
+}

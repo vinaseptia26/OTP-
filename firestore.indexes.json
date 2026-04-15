@@ -1,0 +1,236 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "lembur",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "tanggal",
+          "order": "DESCENDING"
+        },
+        {
+          "fieldPath": "__name__",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "phone",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status_akun",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "__name__",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "role",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "fungsi",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "__name__",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    
+    
+    {
+      "collectionGroup": "lembur",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "pengawas_fungsi",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "tahun_bulan",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "tanggal",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    
+    {
+      "collectionGroup": "lembur",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "pengawas_fungsi",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "tahun_bulan",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "tanggal",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    
+
+    {
+      "collectionGroup": "lembur",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "pengawas_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "tahun_bulan",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "tanggal",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    
+    {
+      "collectionGroup": "lembur",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "pengawas_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "tahun_bulan",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "tanggal",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    
+    {
+      "collectionGroup": "lembur",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "mitra_ids",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "tahun_bulan",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "tanggal",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+  
+    {
+      "collectionGroup": "lembur",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "mitra_ids",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "tahun_bulan",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "tanggal",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    
+    {
+      "collectionGroup": "lembur",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "pengawas_fungsi",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "tahun_bulan",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    
+    {
+      "collectionGroup": "lembur",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "nama_mitra",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "tanggal",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+  
+    {
+      "collectionGroup": "absensi",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "group_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "waktu",
+          "order": "DESCENDING"
+        }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}
