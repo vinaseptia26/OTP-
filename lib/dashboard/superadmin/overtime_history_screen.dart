@@ -13,15 +13,11 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:excel/excel.dart' as excel;
 import 'package:path_provider/path_provider.dart';
-import 'dart:io' as io;
 import 'package:share_plus/share_plus.dart';
 import 'package:printing/printing.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:flutter/services.dart' show rootBundle;
-
-// Tambahkan untuk web
-import 'dart:html' as html;
 
 var logger = Logger();
 
@@ -278,8 +274,6 @@ class _OvertimeHistoryScreenState extends State<OvertimeHistoryScreen>
       }
 
       await _loadInitialData();
-      
-      // ==================== PERUBAHAN: Cek jadwal kadaluarsa ====================
       await _checkExpiredOvertime();
 
       if (mounted) setState(() => isLoading = false);
@@ -292,7 +286,6 @@ class _OvertimeHistoryScreenState extends State<OvertimeHistoryScreen>
     }
   }
 
-  // ==================== PERUBAHAN: Fungsi untuk mengecek jadwal kadaluarsa ====================
   Future<void> _checkExpiredOvertime() async {
     try {
       final now = DateTime.now();
@@ -305,7 +298,6 @@ class _OvertimeHistoryScreenState extends State<OvertimeHistoryScreen>
         query = query.where('pengawas_id', isEqualTo: _userId);
       }
       
-      // Ambil jadwal yang statusnya disetujui dan belum selesai absensi
       final snapshot = await query
           .where('status', isEqualTo: 'disetujui')
           .where('absensi_status', isNotEqualTo: 'selesai')
@@ -319,7 +311,6 @@ class _OvertimeHistoryScreenState extends State<OvertimeHistoryScreen>
         final tanggalLembur = (data['tanggal'] as Timestamp).toDate();
         final jamSelesai = data['jam_selesai'] ?? '00:00';
         
-        // Hitung batas waktu akhir (H+1 setelah jam selesai)
         final waktuSelesai = DateTime(
           tanggalLembur.year,
           tanggalLembur.month,
@@ -328,11 +319,9 @@ class _OvertimeHistoryScreenState extends State<OvertimeHistoryScreen>
           int.parse(jamSelesai.split(':')[1]),
         );
         
-        // Batas waktu absensi adalah 1 hari setelah waktu selesai
         final batasWaktu = waktuSelesai.add(const Duration(days: 1));
         
         if (now.isAfter(batasWaktu)) {
-          // Lembur sudah kadaluarsa
           batch.update(doc.reference, {
             'status': 'kadaluarsa',
             'absensi_status': 'expired',
@@ -374,7 +363,6 @@ class _OvertimeHistoryScreenState extends State<OvertimeHistoryScreen>
     }
   }
 
-  // ==================== BUILD OPTIMIZED QUERY ====================
   Query<Map<String, dynamic>> _buildOptimizedQuery() {
     Query<Map<String, dynamic>> query = _firestore.collection('lembur');
 
@@ -408,7 +396,6 @@ class _OvertimeHistoryScreenState extends State<OvertimeHistoryScreen>
     }
   }
 
-  // ==================== APPLY CLIENT-SIDE FILTERS ====================
   void _applyFilters() {
     setState(() {
       _filteredDocs = _cachedDocs.where((doc) {
@@ -482,7 +469,6 @@ class _OvertimeHistoryScreenState extends State<OvertimeHistoryScreen>
     });
   }
 
-  // ==================== BUILD STATS QUERY ====================
   Future<Map<String, dynamic>> _getStatsData() async {
     try {
       Query<Map<String, dynamic>> query = _firestore.collection('lembur');
@@ -524,7 +510,6 @@ class _OvertimeHistoryScreenState extends State<OvertimeHistoryScreen>
 
       for (var doc in docs) {
         final data = doc.data();
-        // ==================== PERUBAHAN: Hanya hitung yang sudah selesai untuk invoice ====================
         if (data['status'] == 'selesai') {
           totalJam += (data['total_jam_desimal'] ?? 0).toDouble();
           totalBiaya += (data['estimasi_biaya_total'] ?? 0).toDouble();
@@ -840,7 +825,7 @@ class _OvertimeHistoryScreenState extends State<OvertimeHistoryScreen>
       leading: IconButton(
         icon: const Icon(Icons.menu, color: Colors.white),
         onPressed: () {
-          Scaffold.of(context).openDrawer();
+          _scaffoldKey.currentState?.openDrawer();
         },
       ),
       actions: _buildAppBarActions(),
@@ -2066,7 +2051,6 @@ class _OvertimeHistoryScreenState extends State<OvertimeHistoryScreen>
     );
   }
 
-  // ==================== PERUBAHAN: Status kadaluarsa ditambahkan ke card ====================
   Widget _buildLemburListCard(String docId, Map<String, dynamic> data) {
     final status = data['status'] ?? 'pending';
     final statusColor = _getStatusColor(status);
@@ -2398,7 +2382,6 @@ class _OvertimeHistoryScreenState extends State<OvertimeHistoryScreen>
                 ],
               ),
 
-              // ==================== PERUBAHAN: Tombol Absensi hanya untuk Mitra dan belum kadaluarsa ====================
               if (isNeedAbsensi && isMitra && !isExpired) ...[
                 const SizedBox(height: 16),
                 ElevatedButton.icon(
@@ -2417,7 +2400,6 @@ class _OvertimeHistoryScreenState extends State<OvertimeHistoryScreen>
                 ),
               ],
 
-              // ==================== PERUBAHAN: Pesan untuk jadwal kadaluarsa ====================
               if (isExpired) ...[
                 const SizedBox(height: 16),
                 Container(
@@ -2445,7 +2427,6 @@ class _OvertimeHistoryScreenState extends State<OvertimeHistoryScreen>
                 ),
               ],
 
-              // Informasi untuk Pengawas
               if (isNeedAbsensi && isPengawas && !isExpired) ...[
                 const SizedBox(height: 16),
                 Container(
@@ -2746,7 +2727,6 @@ class _OvertimeHistoryScreenState extends State<OvertimeHistoryScreen>
   // ==================== ABSENSI DIALOG ====================
   Future<void> _showAbsensiDialog(String docId, Map<String, dynamic> data) async {
     final isMultiple = data['is_multiple'] ?? false;
-    final isMitraRole = isMitra;
     final absensiStatus = data['absensi_status'] ?? 'belum_absen';
     final isAlreadyAbsen = absensiStatus == 'selesai';
     
@@ -2768,7 +2748,7 @@ class _OvertimeHistoryScreenState extends State<OvertimeHistoryScreen>
           docId: docId,
           data: data,
           isMultiple: isMultiple,
-          isMitra: isMitraRole,
+          isMitra: isMitra,
           userId: _userId,
           userName: _userName,
           userEmail: _userEmail,
@@ -2816,6 +2796,8 @@ class _OvertimeHistoryScreenState extends State<OvertimeHistoryScreen>
     );
   }
 
+  // ==================== EXPORT FUNCTIONS (MOBILE ONLY) ====================
+  
   Future<void> _exportToExcel() async {
     try {
       _showInfoSnackbar('Menyiapkan data untuk export...');
@@ -2893,31 +2875,16 @@ class _OvertimeHistoryScreenState extends State<OvertimeHistoryScreen>
         ]);
       }
 
-      // Handle platform yang berbeda
-      if (io.Platform.isAndroid || io.Platform.isIOS) {
-        final dir = await getTemporaryDirectory();
-        final fileName = 'Lembur_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.xlsx';
-        final file = io.File('${dir.path}/$fileName');
-        await file.writeAsBytes(excelFile.encode()!);
-        
-        await Share.shareXFiles(
-          [XFile(file.path)],
-          text: 'Data Lembur',
-        );
-      } else {
-        // Untuk WEB: download langsung
-        final bytes = excelFile.encode();
-        if (bytes != null) {
-          final fileName = 'Lembur_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.xlsx';
-          final blob = html.Blob([bytes]);
-          final url = html.Url.createObjectUrlFromBlob(blob);
-          final anchor = html.AnchorElement(href: url)
-            ..target = 'blank'
-            ..download = fileName;
-          anchor.click();
-          html.Url.revokeObjectUrl(url);
-        }
-      }
+      // Simpan ke file temporary dan share
+      final dir = await getTemporaryDirectory();
+      final fileName = 'Lembur_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.xlsx';
+      final file = File('${dir.path}/$fileName');
+      await file.writeAsBytes(excelFile.encode()!);
+      
+      await Share.shareXFiles(
+        [XFile(file.path)],
+        text: 'Data Lembur',
+      );
 
       _showSuccessSnackbar('File Excel berhasil dibuat');
     } catch (e) {
@@ -2936,7 +2903,6 @@ class _OvertimeHistoryScreenState extends State<OvertimeHistoryScreen>
 
       final pdf = pw.Document();
 
-      // Load font untuk dukungan Unicode - fallback ke default font
       pw.Font? ttf;
       pw.Font? boldTtf;
       
@@ -2947,7 +2913,6 @@ class _OvertimeHistoryScreenState extends State<OvertimeHistoryScreen>
         final boldFontData = await rootBundle.load('assets/fonts/Roboto-Bold.ttf');
         boldTtf = pw.Font.ttf(boldFontData);
       } catch (e) {
-        // Gunakan default font jika file font tidak ditemukan
         ttf = pw.Font.helvetica();
         boldTtf = pw.Font.helveticaBold();
       }
@@ -3074,30 +3039,15 @@ class _OvertimeHistoryScreenState extends State<OvertimeHistoryScreen>
         ),
       );
 
-      // Handle platform yang berbeda
-      if (io.Platform.isAndroid || io.Platform.isIOS) {
-        final dir = await getTemporaryDirectory();
-        final fileName = 'Lembur_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.pdf';
-        final file = io.File('${dir.path}/$fileName');
-        await file.writeAsBytes(await pdf.save());
+      final dir = await getTemporaryDirectory();
+      final fileName = 'Lembur_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.pdf';
+      final file = File('${dir.path}/$fileName');
+      await file.writeAsBytes(await pdf.save());
 
-        await Share.shareXFiles(
-          [XFile(file.path)],
-          text: 'Laporan Lembur',
-        );
-      } else {
-        // Untuk WEB
-        final bytes = await pdf.save();
-        final blob = html.Blob([bytes], 'application/pdf');
-        final url = html.Url.createObjectUrlFromBlob(blob);
-        final fileName = 'Lembur_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.pdf';
-        
-        final anchor = html.AnchorElement(href: url)
-          ..target = 'blank'
-          ..download = fileName;
-        anchor.click();
-        html.Url.revokeObjectUrl(url);
-      }
+      await Share.shareXFiles(
+        [XFile(file.path)],
+        text: 'Laporan Lembur',
+      );
 
       _showSuccessSnackbar('File PDF berhasil dibuat');
     } catch (e) {
@@ -3110,7 +3060,6 @@ class _OvertimeHistoryScreenState extends State<OvertimeHistoryScreen>
     double total = 0;
     for (var doc in docs) {
       final data = doc.data();
-      // ==================== PERUBAHAN: Hanya hitung yang selesai ====================
       if (data['status'] == 'selesai') {
         total += (data['total_jam_desimal'] ?? 0).toDouble();
       }
@@ -3122,7 +3071,6 @@ class _OvertimeHistoryScreenState extends State<OvertimeHistoryScreen>
     double total = 0;
     for (var doc in docs) {
       final data = doc.data();
-      // ==================== PERUBAHAN: Hanya hitung yang selesai ====================
       if (data['status'] == 'selesai') {
         total += (data['estimasi_biaya_total'] ?? 0).toDouble();
       }
@@ -3628,9 +3576,7 @@ class _OvertimeHistoryScreenState extends State<OvertimeHistoryScreen>
   }
 }
 
-// ============================================================================
-// ABSENSI DIALOG WIDGET
-// ============================================================================
+// ==================== ABSENSI DIALOG WIDGET ====================
 class AbsensiDialog extends StatefulWidget {
   final String docId;
   final Map<String, dynamic> data;
@@ -4085,7 +4031,6 @@ class _AbsensiDialogState extends State<AbsensiDialog> with TickerProviderStateM
       // Kirim notifikasi ke pengawas dengan status progres
       if (widget.data['pengawas_id'] != null) {
         if (widget.isMultiple) {
-          // Hitung total mitra dan yang sudah absen
           final absensiSnapshot = await _firestore
               .collection('absensi')
               .where('group_id', isEqualTo: widget.data['group_id'])
@@ -4095,7 +4040,6 @@ class _AbsensiDialogState extends State<AbsensiDialog> with TickerProviderStateM
           final sudahAbsen = absensiSnapshot.docs.length;
           
           if (sudahAbsen >= totalMitra) {
-            // Semua mitra sudah absen
             await _firestore.collection('notifications').add({
               'userId': widget.data['pengawas_id'],
               'title': '✅ Semua Mitra Sudah Absen',
@@ -4110,7 +4054,6 @@ class _AbsensiDialogState extends State<AbsensiDialog> with TickerProviderStateM
               'createdAt': FieldValue.serverTimestamp(),
             });
           } else {
-            // Belum semua absen
             await _firestore.collection('notifications').add({
               'userId': widget.data['pengawas_id'],
               'title': '📸 Mitra Melakukan Absensi',
@@ -4127,7 +4070,6 @@ class _AbsensiDialogState extends State<AbsensiDialog> with TickerProviderStateM
             });
           }
         } else {
-          // Lembur individual
           await _firestore.collection('notifications').add({
             'userId': widget.data['pengawas_id'],
             'title': '📸 Absensi Lembur',
@@ -4166,9 +4108,7 @@ class _AbsensiDialogState extends State<AbsensiDialog> with TickerProviderStateM
   }
 }
 
-// ============================================================================
-// DETAIL CONTENT WIDGET
-// ============================================================================
+// ==================== DETAIL CONTENT WIDGET ====================
 class _LemburDetailContent extends StatefulWidget {
   final String docId;
   final Map<String, dynamic> data;

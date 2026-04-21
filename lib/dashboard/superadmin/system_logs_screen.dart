@@ -15,10 +15,6 @@ import 'package:excel/excel.dart' as excel;
 import 'package:printing/printing.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
-import 'package:flutter/foundation.dart' show kIsWeb;
-
-// Web support
-import 'dart:html' as html;
 
 var logger = Logger();
 
@@ -101,14 +97,14 @@ class _SystemLogsScreenState extends State<SystemLogsScreen>
   
   // Level colors
   final Map<String, Color> _levelColors = {
-    'info': Color(0xFF2196F3),
-    'warning': Color(0xFFFF9800),
-    'error': Color(0xFFF44336),
-    'success': Color(0xFF4CAF50),
-    'debug': Color(0xFF9C27B0),
+    'info': const Color(0xFF2196F3),
+    'warning': const Color(0xFFFF9800),
+    'error': const Color(0xFFF44336),
+    'success': const Color(0xFF4CAF50),
+    'debug': const Color(0xFF9C27B0),
   };
   
-  // Category icons - DIPERBAIKI: mengganti Icons.download_upload yang tidak ada
+  // Category icons
   final Map<String, IconData> _categoryIcons = {
     'system': Icons.computer,
     'user': Icons.people,
@@ -116,7 +112,7 @@ class _SystemLogsScreenState extends State<SystemLogsScreen>
     'absensi': Icons.camera_alt,
     'broadcast': Icons.campaign,
     'backup': Icons.backup,
-    'export_import': Icons.file_download,  // Perbaikan: Icons.download tidak ada, pakai Icons.file_download
+    'export_import': Icons.file_download,
     'error': Icons.error,
     'login': Icons.login,
     'audit': Icons.history,
@@ -394,7 +390,7 @@ class _SystemLogsScreenState extends State<SystemLogsScreen>
     if (mounted) setState(() => isLoading = false);
   }
   
-  // ==================== EXPORT FUNCTIONS ====================
+  // ==================== EXPORT FUNCTIONS (MOBILE ONLY) ====================
   Future<void> _exportToExcel() async {
     try {
       _showInfoSnackbar('Menyiapkan data untuk export...');
@@ -431,25 +427,12 @@ class _SystemLogsScreenState extends State<SystemLogsScreen>
         ]);
       }
       
-      if (Platform.isAndroid || Platform.isIOS) {
-        final dir = await getTemporaryDirectory();
-        final fileName = 'System_Logs_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.xlsx';
-        final file = File('${dir.path}/$fileName');
-        await file.writeAsBytes(excelFile.encode()!);
-        await Share.shareXFiles([XFile(file.path)], text: 'Data System Logs');
-      } else if (kIsWeb) {
-        final bytes = excelFile.encode();
-        if (bytes != null) {
-          final fileName = 'System_Logs_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.xlsx';
-          final blob = html.Blob([bytes]);
-          final url = html.Url.createObjectUrlFromBlob(blob);
-          final anchor = html.AnchorElement(href: url)
-            ..target = 'blank'
-            ..download = fileName;
-          anchor.click();
-          html.Url.revokeObjectUrl(url);
-        }
-      }
+      // Mobile only - simpan ke temporary directory dan share
+      final dir = await getTemporaryDirectory();
+      final fileName = 'System_Logs_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.xlsx';
+      final file = File('${dir.path}/$fileName');
+      await file.writeAsBytes(excelFile.encode()!);
+      await Share.shareXFiles([XFile(file.path)], text: 'Data System Logs');
       
       _showSuccessSnackbar('File Excel berhasil dibuat');
     } catch (e) {
@@ -551,21 +534,12 @@ class _SystemLogsScreenState extends State<SystemLogsScreen>
         ),
       );
       
-      if (Platform.isAndroid || Platform.isIOS) {
-        final dir = await getTemporaryDirectory();
-        final fileName = 'System_Logs_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.pdf';
-        final file = File('${dir.path}/$fileName');
-        await file.writeAsBytes(await pdf.save());
-        await Share.shareXFiles([XFile(file.path)], text: 'Laporan System Logs');
-      } else if (kIsWeb) {
-        final bytes = await pdf.save();
-        final blob = html.Blob([bytes], 'application/pdf');
-        final url = html.Url.createObjectUrlFromBlob(blob);
-        final fileName = 'System_Logs_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.pdf';
-        final anchor = html.AnchorElement(href: url)..target = 'blank'..download = fileName;
-        anchor.click();
-        html.Url.revokeObjectUrl(url);
-      }
+      // Mobile only - simpan ke temporary directory dan share
+      final dir = await getTemporaryDirectory();
+      final fileName = 'System_Logs_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.pdf';
+      final file = File('${dir.path}/$fileName');
+      await file.writeAsBytes(await pdf.save());
+      await Share.shareXFiles([XFile(file.path)], text: 'Laporan System Logs');
       
       _showSuccessSnackbar('File PDF berhasil dibuat');
     } catch (e) {

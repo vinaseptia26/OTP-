@@ -16,10 +16,6 @@ import 'package:printing/printing.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:excel/excel.dart' as excel;
-import 'package:flutter/foundation.dart' show kIsWeb;
-
-// Conditional import for web
-import 'dart:html' as html;
 
 var logger = Logger();
 
@@ -583,8 +579,8 @@ class _AbsensiHistoryScreenState extends State<AbsensiHistoryScreen>
         'description': description,
         'data': data,
         'timestamp': FieldValue.serverTimestamp(),
-        'ip_address': 'client',
-        'platform': kIsWeb ? 'web' : (Platform.isAndroid ? 'android' : 'ios'),
+        'ip_address': 'mobile',
+        'platform': Platform.isAndroid ? 'android' : 'ios',
       };
       
       await _firestore.collection('audit_trail_absensi').add(auditData);
@@ -3563,6 +3559,8 @@ class _AbsensiHistoryScreenState extends State<AbsensiHistoryScreen>
     );
   }
 
+  // ==================== EXPORT FUNCTIONS (MOBILE ONLY) ====================
+  
   Future<void> _exportToExcel() async {
     try {
       _showInfoSnackbar('Menyiapkan data untuk export...');
@@ -3627,37 +3625,15 @@ class _AbsensiHistoryScreenState extends State<AbsensiHistoryScreen>
         ]);
       }
 
-      if (Platform.isAndroid || Platform.isIOS) {
-        final dir = await getTemporaryDirectory();
-        final fileName = 'Riwayat_Absensi_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.xlsx';
-        final file = File('${dir.path}/$fileName');
-        await file.writeAsBytes(excelFile.encode()!);
-        
-        await Share.shareXFiles(
-          [XFile(file.path)],
-          text: 'Data Riwayat Absensi Lembur',
-        );
-      } else if (kIsWeb) {
-        final bytes = excelFile.encode();
-        if (bytes != null) {
-          final fileName = 'Riwayat_Absensi_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.xlsx';
-          final blob = html.Blob([bytes]);
-          final url = html.Url.createObjectUrlFromBlob(blob);
-          final anchor = html.AnchorElement(href: url)
-            ..target = 'blank'
-            ..download = fileName;
-          anchor.click();
-          html.Url.revokeObjectUrl(url);
-        }
-      } else {
-        final bytes = excelFile.encode();
-        if (bytes != null) {
-          final tempDir = await getTemporaryDirectory();
-          final file = File('${tempDir.path}/Riwayat_Absensi_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.xlsx');
-          await file.writeAsBytes(bytes);
-          await Share.shareXFiles([XFile(file.path)], text: 'Data Riwayat Absensi Lembur');
-        }
-      }
+      final dir = await getTemporaryDirectory();
+      final fileName = 'Riwayat_Absensi_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.xlsx';
+      final file = File('${dir.path}/$fileName');
+      await file.writeAsBytes(excelFile.encode()!);
+      
+      await Share.shareXFiles(
+        [XFile(file.path)],
+        text: 'Data Riwayat Absensi Lembur',
+      );
 
       _showSuccessSnackbar('File Excel berhasil dibuat');
       
@@ -3844,33 +3820,15 @@ class _AbsensiHistoryScreenState extends State<AbsensiHistoryScreen>
         ),
       );
 
-      if (Platform.isAndroid || Platform.isIOS) {
-        final dir = await getTemporaryDirectory();
-        final fileName = 'Riwayat_Absensi_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.pdf';
-        final file = File('${dir.path}/$fileName');
-        await file.writeAsBytes(await pdf.save());
+      final dir = await getTemporaryDirectory();
+      final fileName = 'Riwayat_Absensi_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.pdf';
+      final file = File('${dir.path}/$fileName');
+      await file.writeAsBytes(await pdf.save());
 
-        await Share.shareXFiles(
-          [XFile(file.path)],
-          text: 'Laporan Riwayat Absensi Lembur',
-        );
-      } else if (kIsWeb) {
-        final bytes = await pdf.save();
-        final blob = html.Blob([bytes], 'application/pdf');
-        final url = html.Url.createObjectUrlFromBlob(blob);
-        final fileName = 'Riwayat_Absensi_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.pdf';
-        
-        final anchor = html.AnchorElement(href: url)
-          ..target = 'blank'
-          ..download = fileName;
-        anchor.click();
-        html.Url.revokeObjectUrl(url);
-      } else {
-        final tempDir = await getTemporaryDirectory();
-        final file = File('${tempDir.path}/Riwayat_Absensi_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.pdf');
-        await file.writeAsBytes(await pdf.save());
-        await Share.shareXFiles([XFile(file.path)], text: 'Laporan Riwayat Absensi Lembur');
-      }
+      await Share.shareXFiles(
+        [XFile(file.path)],
+        text: 'Laporan Riwayat Absensi Lembur',
+      );
 
       _showSuccessSnackbar('File PDF berhasil dibuat');
       

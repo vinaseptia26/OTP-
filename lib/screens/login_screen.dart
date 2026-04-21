@@ -322,8 +322,6 @@ class _LoginScreenState extends State<LoginScreen> {
         throw Exception("Akun Anda tidak aktif. Hubungi administrator.");
       }
 
-      // 🚫 VERIFIKASI EMAIL DIHAPUS - Langsung login tanpa cek emailVerified
-
       // Update data user
       final now = DateTime.now();
       
