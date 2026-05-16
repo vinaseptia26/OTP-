@@ -632,7 +632,7 @@ class _OvertimeRatesScreenState extends State<OvertimeRatesScreen>
                           }
                         });
                       },
-                      activeColor: rate.color,
+                      activeThumbColor: rate.color,
                     ),
                   ],
                 ),

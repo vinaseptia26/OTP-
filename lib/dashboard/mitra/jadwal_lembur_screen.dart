@@ -1296,7 +1296,7 @@ class _JadwalLemburMenuState extends State<JadwalLemburMenu> {
                         }
                         
                         return DropdownButtonFormField<String>(
-                          value: selectedMitraId,
+                          initialValue: selectedMitraId,
                           decoration: InputDecoration(
                             labelText: 'Pilih Mitra',
                             border: OutlineInputBorder(
@@ -2096,7 +2096,7 @@ class _JadwalLemburMenuState extends State<JadwalLemburMenu> {
             children: [
               Expanded(
                 child: DropdownButtonFormField<String>(
-                  value: filterStatus,
+                  initialValue: filterStatus,
                   decoration: InputDecoration(
                     labelText: 'Status Pengajuan',
                     border: OutlineInputBorder(

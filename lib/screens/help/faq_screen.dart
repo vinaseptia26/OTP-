@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'faq_category_screen.dart';
 import 'faq_detail_screen.dart';
 
 class FAQScreen extends StatefulWidget {

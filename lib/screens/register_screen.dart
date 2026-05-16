@@ -1,13 +1,12 @@
-// screens/register_screen.dart
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'dart:async';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'dart:async';
-import 'dart:math';
-import 'package:crypto/crypto.dart';
-import 'dart:convert';
+import 'package:firebase_auth/firebase_auth.dart';
+import '../core/app_colors.dart';
+import '../core/validators.dart';
+import '../core/register_service.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -17,12 +16,6 @@ class RegisterScreen extends StatefulWidget {
 }
 
 class _RegisterScreenState extends State<RegisterScreen> {
-  // Warna-warna
-  final Color primaryBlue = const Color(0xFF1E3C72);
-  final Color secondaryBlue = const Color(0xFF2A4F8C);
-  final Color accentOrange = const Color(0xFFFF6B35);
-  final Color softRed = const Color(0xFFE74C3C);
-
   // Controller dan state
   final _formKey = GlobalKey<FormState>();
   final _namaController = TextEditingController();
@@ -43,19 +36,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
   String _passwordStrengthText = "";
   Color _passwordStrengthColor = Colors.grey;
 
-  // Rate Limiting - 30 detik
+  // Rate Limiting
   int _registerAttempts = 0;
   DateTime? _lastRegisterAttempt;
   Timer? _coolDownTimer;
   static const int _maxAttempts = 3;
-  static const int _coolDownSeconds = 30; // Timer 30 detik
+  static const int _coolDownSeconds = 30;
   
-  // Captcha - HANYA PENJUMLAHAN DAN PENGURANGAN
+  // Captcha
   String _captchaQuestion = "";
   int _captchaAnswer = 0;
   int _captchaDifficulty = 1;
   
-  // Session ID sederhana
+  // Services
+  final RegisterService _registerService = RegisterService();
   String _sessionId = '';
 
   // Daftar fungsi
@@ -73,7 +67,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     super.initState();
     _passwordController.addListener(_calculatePasswordStrength);
     _generateCaptcha();
-    _generateSessionId();
+    _sessionId = _registerService.generateSessionId();
   }
 
   @override
@@ -86,13 +80,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _captchaController.dispose();
     _coolDownTimer?.cancel();
     super.dispose();
-  }
-
-  // ================= SESSION ID =================
-  void _generateSessionId() {
-    final random = Random();
-    final timestamp = DateTime.now().millisecondsSinceEpoch;
-    _sessionId = 'session_$timestamp${random.nextInt(10000)}';
   }
 
   // ================= PASSWORD STRENGTH =================
@@ -121,10 +108,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
       
       if (_passwordStrength < 0.5) {
         _passwordStrengthText = "Lemah";
-        _passwordStrengthColor = softRed;
+        _passwordStrengthColor = AppColors.softRed;
       } else if (_passwordStrength < 0.8) {
         _passwordStrengthText = "Sedang";
-        _passwordStrengthColor = accentOrange;
+        _passwordStrengthColor = AppColors.accentOrange;
       } else {
         _passwordStrengthText = "Kuat";
         _passwordStrengthColor = Colors.green;
@@ -132,43 +119,39 @@ class _RegisterScreenState extends State<RegisterScreen> {
     });
   }
 
-  // ================= CAPTCHA - HANYA PENJUMLAHAN & PENGURANGAN =================
+  // ================= CAPTCHA =================
   void _generateCaptcha() {
     final random = Random();
     int num1, num2, result;
     String op;
     
     switch(_captchaDifficulty) {
-      case 1: // Level 1: Penjumlahan sederhana
+      case 1:
         num1 = random.nextInt(10) + 1;
         num2 = random.nextInt(10) + 1;
         op = '+';
         result = num1 + num2;
         break;
-      case 2: // Level 2: Penjumlahan atau pengurangan
+      case 2:
         if (random.nextBool()) {
-          // Penjumlahan
           num1 = random.nextInt(15) + 5;
           num2 = random.nextInt(10) + 1;
           op = '+';
           result = num1 + num2;
         } else {
-          // Pengurangan (pastikan hasil positif)
           num1 = random.nextInt(20) + 10;
           num2 = random.nextInt(10) + 1;
           op = '-';
           result = num1 - num2;
         }
         break;
-      case 3: // Level 3: Angka lebih besar
+      case 3:
         if (random.nextBool()) {
-          // Penjumlahan
           num1 = random.nextInt(30) + 10;
           num2 = random.nextInt(20) + 1;
           op = '+';
           result = num1 + num2;
         } else {
-          // Pengurangan
           num1 = random.nextInt(40) + 20;
           num2 = random.nextInt(15) + 1;
           op = '-';
@@ -195,58 +178,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     return userAnswer == _captchaAnswer;
   }
 
-  // ================= VALIDASI INPUT =================
-  String? _validateNama(String? value) {
-    if (value == null || value.isEmpty) return "Nama lengkap wajib diisi";
-    if (value.length < 3) return "Nama terlalu pendek";
-    if (value.length > 100) return "Nama terlalu panjang";
-    if (!RegExp(r"^[a-zA-Z\s\.']+$").hasMatch(value)) {
-      return "Nama hanya boleh mengandung huruf, spasi, titik, dan apostrof";
-    }
-    return null;
-  }
-
-  String? _validateEmail(String? value) {
-    if (value == null || value.isEmpty) return "Email wajib diisi";
-    
-    final emailRegex = RegExp(
-      r'^[a-zA-Z0-9.!#$%&’*+/=?^_`{|}~-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*\.[a-zA-Z]{2,}$'
-    );
-    
-    if (!emailRegex.hasMatch(value)) {
-      return "Format email tidak valid";
-    }
-    
-    return null;
-  }
-
-  String? _validatePhone(String? value) {
-    if (value == null || value.isEmpty) return "Nomor HP wajib diisi";
-    
-    final cleanValue = value.replaceAll(RegExp(r'[^\d]'), '');
-    
-    if (cleanValue.length < 10 || cleanValue.length > 13) {
-      return "Nomor HP harus 10-13 digit";
-    }
-    
-    if (!cleanValue.startsWith('8')) {
-      return "Nomor harus diawali dengan 8";
-    }
-    
-    return null;
-  }
-
-  String? _validatePassword(String? value) {
-    if (value == null || value.isEmpty) return "Password wajib diisi";
-    if (value.length < 8) return "Minimal 8 karakter";
-    if (!value.contains(RegExp(r'[A-Z]'))) return "Harus ada huruf besar";
-    if (!value.contains(RegExp(r'[a-z]'))) return "Harus ada huruf kecil";
-    if (!value.contains(RegExp(r'[0-9]'))) return "Harus ada angka";
-    
-    return null;
-  }
-
-  // ================= RATE LIMITING - 30 DETIK BERJALAN =================
+  // ================= RATE LIMITING =================
   int _getCooldownRemaining() {
     if (_lastRegisterAttempt == null) return 0;
     final diff = DateTime.now().difference(_lastRegisterAttempt!);
@@ -260,29 +192,18 @@ class _RegisterScreenState extends State<RegisterScreen> {
       final remaining = _getCooldownRemaining();
       if (remaining <= 0) {
         timer.cancel();
-        if (mounted) setState(() {}); // Update UI untuk mengembalikan tombol normal
+        if (mounted) setState(() {});
       } else {
-        if (mounted) setState(() {}); // Update UI setiap detik untuk menampilkan timer
+        if (mounted) setState(() {});
       }
     });
   }
 
-  // ================= CEK AKTIVITAS MENURIGAKAN =================
   bool _isSuspiciousActivity() {
-    if (_registerAttempts >= _maxAttempts) {
-      return true;
-    }
-    return false;
+    return _registerAttempts >= _maxAttempts;
   }
 
-  // ================= ENKRIPSI DATA =================
-  String _hashData(String data) {
-    final bytes = utf8.encode(data);
-    final hash = sha256.convert(bytes);
-    return hash.toString();
-  }
-
-  // ================= PROSES REGISTER (FIXED - LANGSUNG KE LOGIN) =================
+  // ================= PROSES REGISTER =================
   Future<void> _register() async {
     FocusScope.of(context).unfocus();
     
@@ -319,9 +240,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     
     if (!_validateCaptcha()) {
       _showError("Kode captcha salah");
-      if (_captchaDifficulty < 3) {
-        _captchaDifficulty++;
-      }
+      if (_captchaDifficulty < 3) _captchaDifficulty++;
       _generateCaptcha();
       return;
     }
@@ -333,89 +252,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
     });
 
     try {
-      // Bersihkan input
-      final cleanEmail = _emailController.text.trim().toLowerCase();
-      final cleanPhone = _phoneController.text.trim().replaceAll(RegExp(r'[^\d]'), '');
-      final cleanNama = _namaController.text.trim().replaceAll(RegExp(r'\s+'), ' ');
-      
-      // Dapatkan label fungsi
-      String fungsiLabel = _getFungsiLabel(_selectedFungsi);
-
-      // Buat user di Firebase Auth
-      final UserCredential userCredential = await FirebaseAuth.instance
-          .createUserWithEmailAndPassword(
-        email: cleanEmail,
-        password: _passwordController.text.trim(),
-      ).timeout(
-        const Duration(seconds: 8),
-        onTimeout: () {
-          throw TimeoutException("Koneksi timeout. Periksa jaringan Anda.");
-        },
+      // PANGGIL REGISTER SERVICE (INI YANG BERUBAH!)
+      await _registerService.register(
+        email: _emailController.text,
+        password: _passwordController.text,
+        nama: _namaController.text,
+        phone: _phoneController.text,
+        fungsi: _selectedFungsi,
+        sessionId: _sessionId,
       );
 
-      final User? user = userCredential.user;
-      if (user == null) {
-        throw Exception("Gagal membuat akun");
-      }
-
-      // Dapatkan timestamp sekarang untuk digunakan di audit trail
-      final now = DateTime.now();
-
-      // SIMPAN KE FIRESTORE - FIXED: serverTimestamp TIDAK boleh di dalam array
-      await FirebaseFirestore.instance
-          .collection("users")
-          .doc(user.uid)
-          .set({
-        // IDENTITAS DASAR (String)
-        "id": user.uid,
-        "nama_lengkap": cleanNama,
-        "email": cleanEmail,
-        "email_hash": _hashData(cleanEmail),
-        "phone": cleanPhone,
-        "phone_hash": _hashData(cleanPhone),
-        "role": "mitra",
-        "fungsi": _selectedFungsi,
-        "fungsi_label": fungsiLabel,
-        
-        // STATUS AKUN (String, boolean, number)
-        "status_akun": "active",
-        "is_verified": true,
-        "account_locked": false,
-        "login_attempts": 0,
-        
-        // KEAMANAN (Map) - BOLEH pakai serverTimestamp di dalam Map
-        "security": {
-          "session_id": _sessionId,
-          "registered_at": FieldValue.serverTimestamp(),
-          "security_level": "standard",
-        },
-        
-        // TERMS (boolean, Timestamp, String)
-        "terms_accepted": true,
-        "terms_accepted_at": FieldValue.serverTimestamp(),
-        "terms_version": "1.0",
-        
-        // METADATA (Timestamp, boolean)
-        "created_at": FieldValue.serverTimestamp(),
-        "last_login": FieldValue.serverTimestamp(),
-        "profile_complete": true,
-        
-        // AUDIT TRAIL - FIXED: GUNAKAN DateTime.now(), BUKAN serverTimestamp()
-        "audit_trail": [
-          {
-            "action": "register",
-            "timestamp": DateTime.now(),
-            "session_id": _sessionId,
-          }
-        ],
-      });
-
-      // Reset counter
       _registerAttempts = 0;
       _captchaDifficulty = 1;
 
       if (mounted) {
-        // Tampilkan snackbar sukses
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Row(
@@ -432,24 +282,18 @@ class _RegisterScreenState extends State<RegisterScreen> {
             ),
             backgroundColor: Colors.green,
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             duration: const Duration(seconds: 3),
           ),
         );
 
-        // Arahkan ke halaman login (BUKAN dashboard)
         Navigator.pushReplacementNamed(context, '/login');
       }
     } on FirebaseAuthException catch (e) {
-      String errorMessage = _getFirebaseErrorMessage(e.code);
-      _showError(errorMessage);
+      _showError(_registerService.getFirebaseErrorMessage(e.code));
       
       setState(() {
-        if (_captchaDifficulty < 3) {
-          _captchaDifficulty++;
-        }
+        if (_captchaDifficulty < 3) _captchaDifficulty++;
       });
       _generateCaptcha();
       
@@ -462,48 +306,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
       _generateCaptcha();
     } finally {
       if (mounted) {
-        setState(() {
-          _loading = false;
-        });
+        setState(() => _loading = false);
       }
-    }
-  }
-
-  String _getFungsiLabel(String fungsi) {
-    switch (fungsi) {
-      case 'operation':
-        return 'Operation';
-      case 'lab':
-        return 'Laboratorium';
-      case 'maintenance':
-        return 'Maintenance';
-      case 'hsse':
-        return 'HSSE';
-      case 'gpr':
-        return 'GPR';
-      case 'bs':
-        return 'BS';
-      default:
-        return fungsi;
-    }
-  }
-
-  String _getFirebaseErrorMessage(String code) {
-    switch (code) {
-      case 'email-already-in-use':
-        return 'Email sudah terdaftar. Silakan gunakan email lain atau login.';
-      case 'invalid-email':
-        return 'Format email tidak valid.';
-      case 'weak-password':
-        return 'Password terlalu lemah. Gunakan kombinasi yang lebih kuat.';
-      case 'network-request-failed':
-        return 'Tidak ada koneksi internet. Periksa jaringan Anda.';
-      case 'too-many-requests':
-        return 'Terlalu banyak percobaan. Tunggu beberapa saat.';
-      case 'operation-not-allowed':
-        return 'Registrasi sedang dinonaktifkan. Hubungi admin.';
-      default:
-        return 'Registrasi gagal. Silakan coba lagi.';
     }
   }
 
@@ -517,30 +321,25 @@ class _RegisterScreenState extends State<RegisterScreen> {
             const Icon(Icons.error_outline_rounded, color: Colors.white),
             const SizedBox(width: 12),
             Expanded(
-              child: Text(
-                msg,
-                style: GoogleFonts.poppins(fontSize: 13),
-              ),
+              child: Text(msg, style: GoogleFonts.poppins(fontSize: 13)),
             ),
           ],
         ),
-        backgroundColor: softRed,
+        backgroundColor: AppColors.softRed,
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         duration: const Duration(seconds: 4),
       ),
     );
   }
 
-  // ================= UI BUILD =================
+  // ================= UI BUILD (TETAP SAMA PERSIS) =================
   @override
   Widget build(BuildContext context) {
     final remaining = _getCooldownRemaining();
     
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: AppColors.backgroundWhite,
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
@@ -548,9 +347,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
               child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  minHeight: constraints.maxHeight,
-                ),
+                constraints: BoxConstraints(minHeight: constraints.maxHeight),
                 child: IntrinsicHeight(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.center,
@@ -587,11 +384,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               color: Colors.grey[100],
               borderRadius: BorderRadius.circular(12),
             ),
-            child: const Icon(
-              Icons.arrow_back_ios_new_rounded,
-              size: 18,
-              color: Color(0xFF1E3C72),
-            ),
+            child: const Icon(Icons.arrow_back_ios_new_rounded, size: 18, color: AppColors.primaryBlue),
           ),
         ),
         const Spacer(),
@@ -609,11 +402,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               const SizedBox(width: 4),
               Text(
                 "Keamanan Terenkripsi",
-                style: GoogleFonts.poppins(
-                  fontSize: 10,
-                  color: Colors.green[700],
-                  fontWeight: FontWeight.w600,
-                ),
+                style: GoogleFonts.poppins(fontSize: 10, color: Colors.green[700], fontWeight: FontWeight.w600),
               ),
             ],
           ),
@@ -628,25 +417,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
       child: Stack(
         alignment: Alignment.center,
         children: [
-          Icon(
-            Icons.app_registration_rounded,
-            size: 80,
-            color: primaryBlue.withAlpha(76),
-          ),
+          Icon(Icons.app_registration_rounded, size: 80, color: AppColors.primaryBlue.withAlpha(76)),
           Positioned(
             right: 0,
             top: 0,
             child: Container(
               padding: const EdgeInsets.all(4),
-              decoration: BoxDecoration(
-                color: Colors.green,
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(
-                Icons.shield_rounded,
-                color: Colors.white,
-                size: 16,
-              ),
+              decoration: const BoxDecoration(color: Colors.green, shape: BoxShape.circle),
+              child: const Icon(Icons.shield_rounded, color: Colors.white, size: 16),
             ),
           ),
         ],
@@ -660,20 +438,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
         Text(
           "Daftar Akun Baru 👤",
           textAlign: TextAlign.center,
-          style: GoogleFonts.poppins(
-            fontSize: 24,
-            fontWeight: FontWeight.bold,
-            color: primaryBlue,
-          ),
+          style: GoogleFonts.poppins(fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.primaryBlue),
         ),
         const SizedBox(height: 4),
         Text(
           "Bergabung untuk mengajukan kerja lembur\ndengan sistem keamanan terenkripsi",
           textAlign: TextAlign.center,
-          style: GoogleFonts.poppins(
-            fontSize: 12,
-            color: Colors.grey[600],
-          ),
+          style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey[600]),
         ),
       ],
     );
@@ -684,14 +455,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
       width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: primaryBlue,
+        color: AppColors.primaryBlue,
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
-          BoxShadow(
-            color: primaryBlue.withAlpha(89),
-            blurRadius: 20,
-            offset: const Offset(0, 8),
-          ),
+          BoxShadow(color: AppColors.primaryBlue.withAlpha(89), blurRadius: 20, offset: const Offset(0, 8)),
         ],
       ),
       child: Form(
@@ -730,23 +497,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Widget _buildFormHeader() {
     return Column(
       children: [
-        Text(
-          "REGISTRASI AMAN",
-          style: GoogleFonts.poppins(
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
-          ),
-        ),
+        Text("REGISTRASI AMAN", style: GoogleFonts.poppins(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white)),
         const SizedBox(height: 4),
-        Text(
-          "Semua data dienkripsi",
-          textAlign: TextAlign.center,
-          style: GoogleFonts.poppins(
-            fontSize: 11,
-            color: Colors.white70,
-          ),
-        ),
+        Text("Semua data dienkripsi", textAlign: TextAlign.center, style: GoogleFonts.poppins(fontSize: 11, color: Colors.white70)),
       ],
     );
   }
@@ -762,7 +515,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           controller: _namaController,
           icon: Icons.person_outline,
           hint: "Masukkan nama lengkap",
-          validator: _validateNama,
+          validator: Validators.validateNama, // ✅ PAKE VALIDATORS CLASS
         ),
       ],
     );
@@ -780,7 +533,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           icon: Icons.email_outlined,
           hint: "contoh@email.com",
           type: TextInputType.emailAddress,
-          validator: _validateEmail,
+          validator: Validators.validateEmail, // ✅ PAKE VALIDATORS CLASS
         ),
       ],
     );
@@ -798,21 +551,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
           icon: Icons.phone_iphone_rounded,
           hint: "81234567890",
           type: TextInputType.phone,
-          formatters: [
-            FilteringTextInputFormatter.digitsOnly,
-            LengthLimitingTextInputFormatter(13),
-          ],
-          validator: _validatePhone,
+          formatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(13)],
+          validator: Validators.validatePhone, // ✅ PAKE VALIDATORS CLASS
           prefixWidget: Container(
             padding: const EdgeInsets.only(left: 12, right: 4),
-            child: Text(
-              "+62",
-              style: GoogleFonts.poppins(
-                color: Colors.white,
-                fontWeight: FontWeight.w600,
-                fontSize: 14,
-              ),
-            ),
+            child: Text("+62", style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14)),
           ),
         ),
       ],
@@ -832,14 +575,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
           hint: "Buat password",
           obscure: _hidePass,
           suffix: IconButton(
-            icon: Icon(
-              _hidePass ? Icons.visibility_off : Icons.visibility,
-              color: Colors.white,
-              size: 20,
-            ),
+            icon: Icon(_hidePass ? Icons.visibility_off : Icons.visibility, color: Colors.white, size: 20),
             onPressed: () => setState(() => _hidePass = !_hidePass),
           ),
-          validator: _validatePassword,
+          validator: Validators.validatePassword, // ✅ PAKE VALIDATORS CLASS
         ),
       ],
     );
@@ -860,32 +599,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   child: LinearProgressIndicator(
                     value: _passwordStrength,
                     backgroundColor: Colors.white24,
-                    valueColor: AlwaysStoppedAnimation<Color>(
-                      _passwordStrengthColor,
-                    ),
+                    valueColor: AlwaysStoppedAnimation<Color>(_passwordStrengthColor),
                     minHeight: 4,
                   ),
                 ),
               ),
               const SizedBox(width: 8),
-              Text(
-                _passwordStrengthText,
-                style: GoogleFonts.poppins(
-                  color: _passwordStrengthColor,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
+              Text(_passwordStrengthText, style: GoogleFonts.poppins(color: _passwordStrengthColor, fontSize: 10, fontWeight: FontWeight.w600)),
             ],
           ),
           const SizedBox(height: 2),
-          Text(
-            "Minimal 8 karakter: Huruf besar, kecil, angka",
-            style: GoogleFonts.poppins(
-              color: Colors.white70,
-              fontSize: 8,
-            ),
-          ),
+          Text("Minimal 8 karakter: Huruf besar, kecil, angka", style: GoogleFonts.poppins(color: Colors.white70, fontSize: 8)),
         ],
       ),
     );
@@ -904,11 +628,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           hint: "Ulangi password Anda",
           obscure: _hideConfirm,
           suffix: IconButton(
-            icon: Icon(
-              _hideConfirm ? Icons.visibility_off : Icons.visibility,
-              color: Colors.white,
-              size: 20,
-            ),
+            icon: Icon(_hideConfirm ? Icons.visibility_off : Icons.visibility, color: Colors.white, size: 20),
             onPressed: () => setState(() => _hideConfirm = !_hideConfirm),
           ),
           validator: (v) {
@@ -939,15 +659,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
             child: DropdownButton<String>(
               value: _selectedFungsi,
               isExpanded: true,
-              icon: Padding(
-                padding: const EdgeInsets.only(right: 12),
+              icon: const Padding(
+                padding: EdgeInsets.only(right: 12),
                 child: Icon(Icons.expand_more_rounded, color: Colors.white),
               ),
-              style: GoogleFonts.poppins(
-                fontSize: 13,
-                color: Colors.white,
-              ),
-              dropdownColor: primaryBlue,
+              style: GoogleFonts.poppins(fontSize: 13, color: Colors.white),
+              dropdownColor: AppColors.primaryBlue,
               borderRadius: BorderRadius.circular(12),
               items: _fungsiList.map((Map<String, String> item) {
                 return DropdownMenuItem<String>(
@@ -963,23 +680,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Text(
-                                item['label']!,
-                                style: GoogleFonts.poppins(
-                                  fontSize: 13,
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              Text(
-                                item['description']!,
-                                style: GoogleFonts.poppins(
-                                  fontSize: 9,
-                                  color: Colors.white70,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
+                              Text(item['label']!, style: GoogleFonts.poppins(fontSize: 13, color: Colors.white, fontWeight: FontWeight.w600)),
+                              Text(item['description']!, style: GoogleFonts.poppins(fontSize: 9, color: Colors.white70), maxLines: 1, overflow: TextOverflow.ellipsis),
                             ],
                           ),
                         ),
@@ -989,9 +691,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 );
               }).toList(),
               onChanged: (String? value) {
-                if (value != null) {
-                  setState(() => _selectedFungsi = value);
-                }
+                if (value != null) setState(() => _selectedFungsi = value);
               },
             ),
           ),
@@ -1021,36 +721,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      _captchaQuestion,
-                      style: GoogleFonts.poppins(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: primaryBlue,
-                      ),
-                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8)),
+                    child: Text(_captchaQuestion, style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.primaryBlue)),
                   ),
                   Container(
                     padding: const EdgeInsets.all(4),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withAlpha(25),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      "Level $_captchaDifficulty",
-                      style: GoogleFonts.poppins(
-                        color: Colors.white70,
-                        fontSize: 10,
-                      ),
-                    ),
+                    decoration: BoxDecoration(color: Colors.white.withAlpha(25), borderRadius: BorderRadius.circular(8)),
+                    child: Text("Level $_captchaDifficulty", style: GoogleFonts.poppins(color: Colors.white70, fontSize: 10)),
                   ),
                 ],
               ),
@@ -1063,18 +741,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 decoration: InputDecoration(
                   hintText: "Masukkan jawaban",
                   hintStyle: const TextStyle(color: Colors.white54, fontSize: 12),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(color: Colors.white54),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(color: Colors.white),
-                  ),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 8,
-                  ),
+                  enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Colors.white54)),
+                  focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Colors.white)),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   filled: true,
                   fillColor: Colors.white.withAlpha(25),
                 ),
@@ -1090,14 +759,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 children: [
                   TextButton(
                     onPressed: _generateCaptcha,
-                    child: Text(
-                      "Refresh Captcha",
-                      style: GoogleFonts.poppins(
-                        color: Colors.white70,
-                        fontSize: 10,
-                        decoration: TextDecoration.underline,
-                      ),
-                    ),
+                    child: Text("Refresh Captcha", style: GoogleFonts.poppins(color: Colors.white70, fontSize: 10, decoration: TextDecoration.underline)),
                   ),
                 ],
               ),
@@ -1117,7 +779,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           child: Checkbox(
             value: _agreeTerms,
             activeColor: Colors.white,
-            checkColor: primaryBlue,
+            checkColor: AppColors.primaryBlue,
             onChanged: (v) => setState(() => _agreeTerms = v ?? false),
           ),
         ),
@@ -1127,30 +789,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
             child: RichText(
               text: TextSpan(
                 text: "Saya setuju dengan ",
-                style: GoogleFonts.poppins(
-                  color: Colors.white,
-                  fontSize: 11,
-                ),
+                style: GoogleFonts.poppins(color: Colors.white, fontSize: 11),
                 children: [
-                  TextSpan(
-                    text: "Syarat & Ketentuan",
-                    style: GoogleFonts.poppins(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w600,
-                      decoration: TextDecoration.underline,
-                      fontSize: 11,
-                    ),
-                  ),
+                  TextSpan(text: "Syarat & Ketentuan", style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600, decoration: TextDecoration.underline, fontSize: 11)),
                   const TextSpan(text: " dan "),
-                  TextSpan(
-                    text: "Kebijakan Privasi",
-                    style: GoogleFonts.poppins(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w600,
-                      decoration: TextDecoration.underline,
-                      fontSize: 11,
-                    ),
-                  ),
+                  TextSpan(text: "Kebijakan Privasi", style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600, decoration: TextDecoration.underline, fontSize: 11)),
                 ],
               ),
             ),
@@ -1170,47 +813,26 @@ class _RegisterScreenState extends State<RegisterScreen> {
         onPressed: isDisabled ? null : _register,
         style: ElevatedButton.styleFrom(
           backgroundColor: Colors.white,
-          foregroundColor: primaryBlue,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
+          foregroundColor: AppColors.primaryBlue,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           elevation: isDisabled ? 0 : 2,
         ),
         child: _loading
-            ? const SizedBox(
-                height: 20,
-                width: 20,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF1E3C72)),
-                ),
-              )
+            ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation<Color>(AppColors.primaryBlue)))
             : remaining > 0
                 ? Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       const Icon(Icons.timer_outlined, size: 16),
                       const SizedBox(width: 4),
-                      Text(
-                        "Tunggu $remaining detik",
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 13,
-                        ),
-                      ),
+                      Text("Tunggu $remaining detik", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                     ],
                   )
-                : Row(
+                : const Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Text(
-                        "DAFTAR AMAN",
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 14,
-                        ),
-                      ),
-                      const SizedBox(width: 4),
+                      Text("DAFTAR AMAN", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                      SizedBox(width: 4),
                       Icon(Icons.arrow_forward_rounded, size: 16),
                     ],
                   ),
@@ -1221,38 +843,21 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Widget _buildLoginLink() {
     return TextButton(
       onPressed: () => Navigator.pop(context),
-      style: TextButton.styleFrom(
-        padding: EdgeInsets.zero,
-        minimumSize: const Size(50, 30),
-        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-      ),
-      child: Text(
-        "Sudah punya akun? Masuk sekarang",
-        style: GoogleFonts.poppins(
-          color: Colors.white,
-          fontWeight: FontWeight.w500,
-          fontSize: 12,
-        ),
-      ),
+      style: TextButton.styleFrom(padding: EdgeInsets.zero, minimumSize: const Size(50, 30), tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+      child: Text("Sudah punya akun? Masuk sekarang", style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w500, fontSize: 12)),
     );
   }
 
   Widget _buildFooter() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: Colors.grey[50],
-        borderRadius: BorderRadius.circular(12),
-      ),
+      decoration: BoxDecoration(color: Colors.grey[50], borderRadius: BorderRadius.circular(12)),
       child: Row(
         children: [
           Container(
             padding: const EdgeInsets.all(6),
-            decoration: BoxDecoration(
-              color: primaryBlue.withAlpha(25),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(Icons.shield_rounded, color: primaryBlue, size: 16),
+            decoration: BoxDecoration(color: AppColors.primaryBlue.withAlpha(25), shape: BoxShape.circle),
+            child: const Icon(Icons.shield_rounded, color: AppColors.primaryBlue, size: 16),
           ),
           const SizedBox(width: 8),
           Expanded(
@@ -1260,21 +865,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
-                  "Keamanan Terenkripsi 🔒",
-                  style: GoogleFonts.poppins(
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                    color: primaryBlue,
-                  ),
-                ),
-                Text(
-                  "SHA-256 + Rate Limiting 30 detik",
-                  style: GoogleFonts.poppins(
-                    fontSize: 9,
-                    color: Colors.grey[600],
-                  ),
-                ),
+                Text("Keamanan Terenkripsi 🔒", style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.primaryBlue)),
+                Text("SHA-256 + Rate Limiting 30 detik", style: GoogleFonts.poppins(fontSize: 9, color: Colors.grey[600])),
               ],
             ),
           ),
@@ -1287,21 +879,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
     return RichText(
       text: TextSpan(
         text: label,
-        style: GoogleFonts.poppins(
-          color: Colors.white70,
-          fontSize: 12,
-          fontWeight: FontWeight.w500,
-        ),
-        children: const [
-          TextSpan(
-            text: " *",
-            style: TextStyle(
-              color: Colors.redAccent,
-              fontWeight: FontWeight.bold,
-              fontSize: 12,
-            ),
-          ),
-        ],
+        style: GoogleFonts.poppins(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w500),
+        children: const [TextSpan(text: " *", style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 12))],
       ),
     );
   }
@@ -1326,42 +905,16 @@ class _RegisterScreenState extends State<RegisterScreen> {
       style: const TextStyle(color: Colors.white, fontSize: 13),
       decoration: InputDecoration(
         hintText: hint,
-        hintStyle: const TextStyle(
-          color: Colors.white54,
-          fontSize: 12,
-        ),
+        hintStyle: const TextStyle(color: Colors.white54, fontSize: 12),
         prefixIcon: prefixWidget != null ? null : Icon(icon, color: Colors.white, size: 18),
         prefix: prefixWidget,
-        suffixIcon: suffix != null 
-            ? Padding(
-                padding: const EdgeInsets.only(right: 4),
-                child: suffix,
-              )
-            : null,
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Colors.white54),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Colors.white),
-        ),
-        errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFFE74C3C)),
-        ),
-        focusedErrorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFFE74C3C)),
-        ),
-        errorStyle: const TextStyle(
-          color: Color(0xFFE74C3C),
-          fontSize: 10,
-        ),
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 12,
-          vertical: 12,
-        ),
+        suffixIcon: suffix != null ? Padding(padding: const EdgeInsets.only(right: 4), child: suffix) : null,
+        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Colors.white54)),
+        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Colors.white)),
+        errorBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppColors.softRed)),
+        focusedErrorBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppColors.softRed)),
+        errorStyle: const TextStyle(color: AppColors.softRed, fontSize: 10),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
         filled: true,
         fillColor: Colors.white.withAlpha(25),
         isDense: true,

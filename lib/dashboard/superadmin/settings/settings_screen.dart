@@ -1,7 +1,6 @@
 // FILE: lib/dashboard/superadmin/settings/settings_screen.dart
 
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -113,7 +112,7 @@ class _SettingsScreenState extends State<SettingsScreen>
       SettingsCategory(
         id: 'roles',
         title: 'Manajemen Role & Akses',
-        description: 'Kelola hak akses, jabatan, dan struktur organisasi',
+        description: 'Kelola hak akses, dan struktur organisasi',
         icon: Icons.admin_panel_settings,
         iconBackground: const Color(0xFF9C27B0),
         gradientColors: const [Color(0xFF8E24AA), Color(0xFFAB47BC)],

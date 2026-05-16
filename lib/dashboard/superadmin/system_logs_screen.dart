@@ -12,7 +12,6 @@ import 'package:logger/logger.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:excel/excel.dart' as excel;
-import 'package:printing/printing.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
@@ -851,7 +850,7 @@ class _SystemLogsScreenState extends State<SystemLogsScreen>
         children: [
           Expanded(
             child: DropdownButtonFormField<String>(
-              value: _selectedLevel,
+              initialValue: _selectedLevel,
               decoration: InputDecoration(
                 labelText: 'Level',
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
@@ -875,7 +874,7 @@ class _SystemLogsScreenState extends State<SystemLogsScreen>
           const SizedBox(width: 12),
           Expanded(
             child: DropdownButtonFormField<String>(
-              value: _selectedUser,
+              initialValue: _selectedUser,
               decoration: InputDecoration(
                 labelText: 'User',
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),

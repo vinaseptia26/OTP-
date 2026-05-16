@@ -1038,7 +1038,7 @@ class _TicketDetailScreenState extends State<TicketDetailScreen> {
                     children: [
                       Expanded(
                         child: DropdownButtonFormField<String>(
-                          value: selectedStatus,
+                          initialValue: selectedStatus,
                           decoration: InputDecoration(
                             labelText: 'Status',
                             border: OutlineInputBorder(
@@ -1063,7 +1063,7 @@ class _TicketDetailScreenState extends State<TicketDetailScreen> {
                       // Priority Dropdown
                       Expanded(
                         child: DropdownButtonFormField<int>(
-                          value: selectedPriority,
+                          initialValue: selectedPriority,
                           decoration: InputDecoration(
                             labelText: 'Priority',
                             border: OutlineInputBorder(

@@ -1,10 +1,8 @@
-import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
-import 'package:syncfusion_flutter_charts/charts.dart';
 import 'package:excel/excel.dart' as excel;
 import 'package:share_plus/share_plus.dart';
 import 'package:path_provider/path_provider.dart';
@@ -583,7 +581,7 @@ class _ReportAuditPageState extends State<ReportAuditPage> with SingleTickerProv
                       children: [
                         Expanded(
                           child: DropdownButtonFormField<String>(
-                            value: _selectedReportType,
+                            initialValue: _selectedReportType,
                             decoration: const InputDecoration(
                               labelText: 'Tipe',
                               border: OutlineInputBorder(),
@@ -605,7 +603,7 @@ class _ReportAuditPageState extends State<ReportAuditPage> with SingleTickerProv
                         const SizedBox(width: 8),
                         Expanded(
                           child: DropdownButtonFormField<String>(
-                            value: _selectedStatus,
+                            initialValue: _selectedStatus,
                             decoration: const InputDecoration(
                               labelText: 'Status',
                               border: OutlineInputBorder(),
@@ -627,7 +625,7 @@ class _ReportAuditPageState extends State<ReportAuditPage> with SingleTickerProv
                         const SizedBox(width: 8),
                         Expanded(
                           child: DropdownButtonFormField<String>(
-                            value: _selectedFungsi,
+                            initialValue: _selectedFungsi,
                             decoration: const InputDecoration(
                               labelText: 'Fungsi',
                               border: OutlineInputBorder(),
