@@ -6,15 +6,86 @@ class RateInfoCard extends StatelessWidget {
   final Map<String, dynamic>? rates;
   final OvertimeRateService _overtimeRateService = OvertimeRateService();
 
-  RateInfoCard({super.key, required this.rates});
+  RateInfoCard({
+    super.key,
+    required this.rates,
+  });
+
+  // ==================== SAFE PARSER ====================
+
+  double _toDouble(
+    dynamic value, {
+    double defaultValue = 0.0,
+  }) {
+    if (value == null) return defaultValue;
+
+    if (value is num) {
+      return value.toDouble();
+    }
+
+    if (value is String) {
+      final cleaned = value.replaceAll(RegExp(r'[^0-9.,-]'), '');
+      final normalized = cleaned.replaceAll(',', '.');
+      return double.tryParse(normalized) ?? defaultValue;
+    }
+
+    return defaultValue;
+  }
+
+  Map<String, dynamic> _toMap(dynamic value) {
+    if (value is Map<String, dynamic>) {
+      return value;
+    }
+
+    if (value is Map) {
+      return Map<String, dynamic>.from(value);
+    }
+
+    return {};
+  }
+
+  String _formatMultiplier(double value) {
+    return '${value.toStringAsFixed(1)}x';
+  }
 
   @override
   Widget build(BuildContext context) {
-    if (rates == null) return const SizedBox.shrink();
+    if (rates == null || rates!.isEmpty) {
+      return const SizedBox.shrink();
+    }
 
-    final ratePerJam = (rates!['rate_per_hour'] as num?)?.toDouble() ?? 0;
-    final weekdayRates = rates!['weekday_rate'] as Map<String, dynamic>;
-    final holidayRates = rates!['holiday_rate'] as Map<String, dynamic>;
+    final ratePerJam = _toDouble(
+      rates!['rate_per_hour'],
+      defaultValue: 0.0,
+    );
+
+    final weekdayRates = _toMap(rates!['weekday_rate']);
+    final holidayRates = _toMap(rates!['holiday_rate']);
+
+    final firstHourMultiplier = _toDouble(
+      weekdayRates['first_hour_multiplier'],
+      defaultValue: 1.5,
+    );
+
+    final nextHoursMultiplier = _toDouble(
+      weekdayRates['next_hours_multiplier'],
+      defaultValue: 2.0,
+    );
+
+    final first8HoursMultiplier = _toDouble(
+      holidayRates['first_8_hours_multiplier'],
+      defaultValue: 2.0,
+    );
+
+    final ninthHourMultiplier = _toDouble(
+      holidayRates['ninth_hour_multiplier'],
+      defaultValue: 3.0,
+    );
+
+    final tenthPlusMultiplier = _toDouble(
+      holidayRates['tenth_plus_multiplier'],
+      defaultValue: 4.0,
+    );
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -36,72 +107,28 @@ class RateInfoCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.white.withAlpha(51),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Icon(Icons.attach_money, color: Colors.white),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      "Tarif Lembur Aktif",
-                      style: GoogleFonts.poppins(
-                        fontWeight: FontWeight.w600,
-                        color: Colors.white70,
-                        fontSize: 12,
-                      ),
-                    ),
-                    Text(
-                      _overtimeRateService.formatRupiahCompact(ratePerJam),
-                      style: GoogleFonts.poppins(
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                        fontSize: 20,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: Colors.white.withAlpha(26),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Text(
-                  "/ jam",
-                  style: GoogleFonts.poppins(
-                    color: Colors.white70,
-                    fontSize: 12,
-                  ),
-                ),
-              ),
-            ],
-          ),
+          _buildHeader(ratePerJam),
           const SizedBox(height: 16),
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
                 child: _buildRateColumn(
-                  "🏢 Hari Kerja",
+                  '🏢 Hari Kerja',
                   [
                     _buildRateRow(
-                      "Jam 1",
-                      "${weekdayRates['first_hour_multiplier']}x",
-                      _overtimeRateService.formatRupiahCompact(ratePerJam * (weekdayRates['first_hour_multiplier'] as double)),
+                      'Jam 1',
+                      _formatMultiplier(firstHourMultiplier),
+                      _overtimeRateService.formatRupiahCompact(
+                        ratePerJam * firstHourMultiplier,
+                      ),
                     ),
                     _buildRateRow(
-                      "Jam 2+",
-                      "${weekdayRates['next_hours_multiplier']}x",
-                      _overtimeRateService.formatRupiahCompact(ratePerJam * (weekdayRates['next_hours_multiplier'] as double)),
+                      'Jam 2+',
+                      _formatMultiplier(nextHoursMultiplier),
+                      _overtimeRateService.formatRupiahCompact(
+                        ratePerJam * nextHoursMultiplier,
+                      ),
                     ),
                   ],
                 ),
@@ -109,22 +136,28 @@ class RateInfoCard extends StatelessWidget {
               const SizedBox(width: 12),
               Expanded(
                 child: _buildRateColumn(
-                  "🎉 Hari Libur",
+                  '🎉 Hari Libur',
                   [
                     _buildRateRow(
-                      "8 jam pertama",
-                      "${holidayRates['first_8_hours_multiplier']}x",
-                      _overtimeRateService.formatRupiahCompact(ratePerJam * (holidayRates['first_8_hours_multiplier'] as double)),
+                      '8 jam pertama',
+                      _formatMultiplier(first8HoursMultiplier),
+                      _overtimeRateService.formatRupiahCompact(
+                        ratePerJam * first8HoursMultiplier,
+                      ),
                     ),
                     _buildRateRow(
-                      "Jam ke-9",
-                      "${holidayRates['ninth_hour_multiplier']}x",
-                      _overtimeRateService.formatRupiahCompact(ratePerJam * (holidayRates['ninth_hour_multiplier'] as double)),
+                      'Jam ke-9',
+                      _formatMultiplier(ninthHourMultiplier),
+                      _overtimeRateService.formatRupiahCompact(
+                        ratePerJam * ninthHourMultiplier,
+                      ),
                     ),
                     _buildRateRow(
-                      "Jam ke-10+",
-                      "${holidayRates['tenth_plus_multiplier']}x",
-                      _overtimeRateService.formatRupiahCompact(ratePerJam * (holidayRates['tenth_plus_multiplier'] as double)),
+                      'Jam ke-10+',
+                      _formatMultiplier(tenthPlusMultiplier),
+                      _overtimeRateService.formatRupiahCompact(
+                        ratePerJam * tenthPlusMultiplier,
+                      ),
                     ),
                   ],
                 ),
@@ -133,6 +166,62 @@ class RateInfoCard extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildHeader(double ratePerJam) {
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: Colors.white.withAlpha(51),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: const Icon(
+            Icons.attach_money,
+            color: Colors.white,
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Tarif Lembur Aktif',
+                style: GoogleFonts.poppins(
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white70,
+                  fontSize: 12,
+                ),
+              ),
+              Text(
+                _overtimeRateService.formatRupiahCompact(ratePerJam),
+                style: GoogleFonts.poppins(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                  fontSize: 20,
+                ),
+              ),
+            ],
+          ),
+        ),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            color: Colors.white.withAlpha(26),
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Text(
+            '/ jam',
+            style: GoogleFonts.poppins(
+              color: Colors.white70,
+              fontSize: 12,
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -156,18 +245,23 @@ class RateInfoCard extends StatelessWidget {
 
   Widget _buildRateRow(String label, String multiplier, String amount) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
+      padding: const EdgeInsets.only(bottom: 6),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(
-            label,
-            style: GoogleFonts.poppins(
-              color: Colors.white70,
-              fontSize: 10,
+          Flexible(
+            child: Text(
+              label,
+              style: GoogleFonts.poppins(
+                color: Colors.white70,
+                fontSize: 10,
+              ),
+              overflow: TextOverflow.ellipsis,
             ),
           ),
+          const SizedBox(width: 6),
           Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),

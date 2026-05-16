@@ -1,20 +1,6 @@
 // ============================================================================
-// LOCATION VALIDATOR - MOBILE OPTIMIZED & SAFE VERSION
+// LOCATION VALIDATOR - SAFE & EFFICIENT VERSION
 // File: /widgets/absensi/location_validator.dart
-// Last Updated: 2026-05-12
-// ============================================================================
-// FEATURES:
-// ✅ GPS service check
-// ✅ Permission handling lengkap
-// ✅ Location dengan retry + fallback
-// ✅ Geocoding dengan timeout
-// ✅ Distance calculation (Haversine)
-// ✅ Custom radius support (meter & km)
-// ✅ Office vs Project radius default
-// ✅ Safe null handling untuk semua field
-// ✅ Detailed error logging
-// ✅ Manual distance backup
-// ✅ Open settings helpers
 // ============================================================================
 
 import 'dart:async';
@@ -31,236 +17,241 @@ class LocationValidator {
   // DEFAULT CONFIG
   // ============================================================================
 
-  /// Default radius untuk lokasi kantor (meter)
   static const double defaultRadiusOffice = 100.0;
-
-  /// Default radius untuk lokasi project/lapangan (meter)
   static const double defaultRadiusProject = 500.0;
 
-  /// Akurasi GPS yang digunakan
-  static const LocationAccuracy accuracy = LocationAccuracy.high;
+  /// Medium lebih aman untuk device low-end daripada high.
+  static const LocationAccuracy defaultAccuracy = LocationAccuracy.medium;
 
-  /// Timeout untuk mendapatkan lokasi (detik)
-  static const int locationTimeoutSeconds = 20;
-
-  /// Timeout untuk geocoding (detik)
+  static const int locationTimeoutSeconds = 30;
   static const int geocodingTimeoutSeconds = 10;
-
-  /// Maksimal retry untuk mendapatkan lokasi
   static const int maxLocationRetries = 2;
 
   // ============================================================================
-  // LOCATION SERVICE CHECK
+  // LOCATION SERVICE & PERMISSION
   // ============================================================================
 
-  /// Cek apakah GPS/Location service aktif di perangkat
   Future<bool> isLocationServiceEnabled() async {
     try {
       return await Geolocator.isLocationServiceEnabled()
           .timeout(const Duration(seconds: 5));
+    } on TimeoutException {
+      debugPrint('LocationValidator: Service check timeout');
+      return false;
     } catch (e) {
       debugPrint('LocationValidator: Service check error: $e');
       return false;
     }
   }
 
-  // ============================================================================
-  // LOCATION PERMISSION CHECK
-  // ============================================================================
-
-  /// Cek dan request permission lokasi
-  /// Returns status permission terakhir
   Future<LocationPermission> checkAndRequestPermission() async {
     try {
-      // Cek permission saat ini
       LocationPermission permission = await Geolocator.checkPermission()
           .timeout(const Duration(seconds: 5));
 
       debugPrint('LocationValidator: Current permission: $permission');
 
-      // Jika denied, request permission
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission()
-            .timeout(const Duration(seconds: 30));
+            .timeout(const Duration(seconds: 20));
+
         debugPrint('LocationValidator: After request: $permission');
       }
 
       return permission;
+    } on TimeoutException {
+      debugPrint('LocationValidator: Permission check/request timeout');
+      return LocationPermission.denied;
     } catch (e) {
       debugPrint('LocationValidator: Permission check error: $e');
       return LocationPermission.denied;
     }
   }
 
-  /// Cek apakah permission sudah granted
   bool isPermissionGranted(LocationPermission permission) {
     return permission == LocationPermission.whileInUse ||
         permission == LocationPermission.always;
   }
 
   // ============================================================================
-  // GET CURRENT LOCATION (WITH RETRY & FALLBACK)
+  // LOCATION AVAILABILITY
   // ============================================================================
 
-  /// Mendapatkan lokasi saat ini
-  /// Mencoba beberapa kali dengan fallback ke last known location
-  Future<Position?> getCurrentLocation() async {
+  Future<Map<String, dynamic>> checkLocationAvailability() async {
     try {
-      // -----------------------------------------------------------------------
-      // CHECK GPS SERVICE
-      // -----------------------------------------------------------------------
-      
       final serviceEnabled = await isLocationServiceEnabled();
 
       if (!serviceEnabled) {
-        debugPrint('LocationValidator: GPS service tidak aktif');
-        return null;
+        return {
+          'available': false,
+          'service_enabled': false,
+          'permission_granted': false,
+          'permission_status': 'unknown',
+          'message': 'GPS/Location service belum aktif',
+        };
       }
 
-      // -----------------------------------------------------------------------
-      // CHECK PERMISSION
-      // -----------------------------------------------------------------------
-      
       final permission = await checkAndRequestPermission();
+      final granted = isPermissionGranted(permission);
 
-      if (!isPermissionGranted(permission)) {
-        debugPrint('LocationValidator: Permission tidak granted ($permission)');
-        return null;
+      return {
+        'available': serviceEnabled && granted,
+        'service_enabled': serviceEnabled,
+        'permission_granted': granted,
+        'permission_status': permission.toString(),
+        'message': granted
+            ? 'Lokasi tersedia'
+            : permission == LocationPermission.deniedForever
+                ? 'Izin lokasi ditolak permanen. Buka pengaturan aplikasi.'
+                : 'Izin lokasi belum diberikan',
+      };
+    } catch (e) {
+      debugPrint('LocationValidator: Availability error: $e');
+      return {
+        'available': false,
+        'service_enabled': false,
+        'permission_granted': false,
+        'permission_status': 'error',
+        'message': 'Gagal memeriksa akses lokasi',
+        'error': e.toString(),
+      };
+    }
+  }
+
+  // ============================================================================
+  // GET CURRENT LOCATION
+  // ============================================================================
+
+  Future<Position?> getCurrentLocation({
+    LocationAccuracy accuracy = defaultAccuracy,
+    bool allowLastKnownFallback = true,
+  }) async {
+    try {
+      final availability = await checkLocationAvailability();
+
+      if (availability['available'] != true) {
+        debugPrint(
+          'LocationValidator: Location unavailable - ${availability['message']}',
+        );
+        return allowLastKnownFallback ? await _getLastKnownPositionSafe() : null;
       }
-
-      // -----------------------------------------------------------------------
-      // ATTEMPT TO GET LOCATION WITH RETRY
-      // -----------------------------------------------------------------------
-      
-      Position? position;
 
       for (int attempt = 1; attempt <= maxLocationRetries; attempt++) {
         try {
-          debugPrint('LocationValidator: Getting location (attempt $attempt/$maxLocationRetries)');
+          debugPrint(
+            'LocationValidator: Getting current location '
+            '(attempt $attempt/$maxLocationRetries)',
+          );
 
-          position = await Geolocator.getCurrentPosition(
+          final position = await Geolocator.getCurrentPosition(
             desiredAccuracy: accuracy,
-            timeLimit: Duration(seconds: locationTimeoutSeconds),
+            timeLimit: const Duration(seconds: locationTimeoutSeconds),
           );
 
-          debugPrint(
-            'LocationValidator: Location obtained - '
-            'lat: ${position.latitude}, lng: ${position.longitude}, '
-            'accuracy: ${position.accuracy}m',
-          );
-          return position;
-                } on TimeoutException {
-          debugPrint('LocationValidator: Timeout on attempt $attempt');
-          
-          if (attempt < maxLocationRetries) {
-            // Tunggu sebentar sebelum retry
-            await Future.delayed(Duration(seconds: attempt * 2));
+          if (_isValidCoordinate(position.latitude, position.longitude)) {
+            debugPrint(
+              'LocationValidator: Current position OK - '
+              '${position.latitude}, ${position.longitude}, '
+              'accuracy: ${position.accuracy}m',
+            );
+            return position;
           }
+
+          debugPrint('LocationValidator: Invalid current position received');
+        } on TimeoutException {
+          debugPrint('LocationValidator: getCurrentPosition timeout');
         } catch (e) {
-          debugPrint('LocationValidator: Error on attempt $attempt: $e');
-          
-          if (attempt < maxLocationRetries) {
-            await Future.delayed(Duration(seconds: attempt * 2));
-          }
+          debugPrint('LocationValidator: getCurrentPosition error: $e');
+        }
+
+        if (attempt < maxLocationRetries) {
+          await Future.delayed(Duration(seconds: attempt * 2));
         }
       }
 
-      // -----------------------------------------------------------------------
-      // FALLBACK: Last Known Position
-      // -----------------------------------------------------------------------
-      
-      debugPrint('LocationValidator: Trying last known position...');
-      
-      try {
-        position = await Geolocator.getLastKnownPosition()
-            .timeout(const Duration(seconds: 10));
-        
-        if (position != null) {
-          debugPrint(
-            'LocationValidator: Last known position - '
-            'lat: ${position.latitude}, lng: ${position.longitude}',
-          );
-        }
-      } catch (e) {
-        debugPrint('LocationValidator: Last known position failed: $e');
-      }
-
-      return position;
-
+      return allowLastKnownFallback ? await _getLastKnownPositionSafe() : null;
     } catch (e, stackTrace) {
       debugPrint('=' * 80);
       debugPrint('LocationValidator: getCurrentLocation CRITICAL ERROR');
       debugPrint('Error: $e');
       debugPrint('Stack: $stackTrace');
       debugPrint('=' * 80);
+
+      return allowLastKnownFallback ? await _getLastKnownPositionSafe() : null;
+    }
+  }
+
+  Future<Position?> _getLastKnownPositionSafe() async {
+    try {
+      debugPrint('LocationValidator: Trying last known position...');
+
+      final position = await Geolocator.getLastKnownPosition()
+          .timeout(const Duration(seconds: 8));
+
+      if (position == null) {
+        debugPrint('LocationValidator: Last known position is null');
+        return null;
+      }
+
+      if (!_isValidCoordinate(position.latitude, position.longitude)) {
+        debugPrint('LocationValidator: Last known position invalid');
+        return null;
+      }
+
+      debugPrint(
+        'LocationValidator: Last known position OK - '
+        '${position.latitude}, ${position.longitude}',
+      );
+
+      return position;
+    } catch (e) {
+      debugPrint('LocationValidator: Last known position failed: $e');
       return null;
     }
   }
 
   // ============================================================================
-  // ADDRESS FROM COORDINATES (WITH TIMEOUT)
+  // ADDRESS FROM COORDINATES
   // ============================================================================
 
-  /// Mendapatkan alamat dari koordinat
-  /// Returns null jika gagal atau timeout
   Future<String?> getAddressFromCoordinates(
     double latitude,
     double longitude,
   ) async {
     try {
-      debugPrint('LocationValidator: Getting address for $latitude, $longitude');
+      if (!_isValidCoordinate(latitude, longitude)) {
+        debugPrint('LocationValidator: Invalid coordinate for geocoding');
+        return null;
+      }
 
       final placemarks = await placemarkFromCoordinates(
         latitude,
         longitude,
-      ).timeout(Duration(seconds: geocodingTimeoutSeconds));
+      ).timeout(const Duration(seconds: geocodingTimeoutSeconds));
 
-      if (placemarks.isEmpty) {
-        debugPrint('LocationValidator: No placemarks found');
-        return null;
-      }
+      if (placemarks.isEmpty) return null;
 
       final place = placemarks.first;
+      final parts = <String>[
+        if (place.street?.trim().isNotEmpty == true) place.street!.trim(),
+        if (place.subLocality?.trim().isNotEmpty == true)
+          place.subLocality!.trim(),
+        if (place.locality?.trim().isNotEmpty == true) place.locality!.trim(),
+        if (place.subAdministrativeArea?.trim().isNotEmpty == true)
+          place.subAdministrativeArea!.trim(),
+        if (place.administrativeArea?.trim().isNotEmpty == true)
+          place.administrativeArea!.trim(),
+        if (place.country?.trim().isNotEmpty == true) place.country!.trim(),
+      ];
 
-      // Build address dari parts yang ada
-      final parts = <String>[];
+      if (parts.isEmpty) return null;
 
-      if (place.street?.isNotEmpty == true) {
-        parts.add(place.street!);
-      }
-      if (place.subLocality?.isNotEmpty == true) {
-        parts.add(place.subLocality!);
-      }
-      if (place.locality?.isNotEmpty == true) {
-        parts.add(place.locality!);
-      }
-      if (place.subAdministrativeArea?.isNotEmpty == true) {
-        parts.add(place.subAdministrativeArea!);
-      }
-      if (place.administrativeArea?.isNotEmpty == true) {
-        parts.add(place.administrativeArea!);
-      }
-      if (place.country?.isNotEmpty == true) {
-        parts.add(place.country!);
-      }
-
-      // Jika tidak ada parts, return null
-      if (parts.isEmpty) {
-        debugPrint('LocationValidator: Address parts empty');
-        return null;
-      }
-
-      final address = parts.join(', ');
-      debugPrint('LocationValidator: Address: $address');
-      
-      return address;
-
+      return parts.join(', ');
     } on TimeoutException {
       debugPrint('LocationValidator: Geocoding timeout');
       return null;
-    } catch (e, stackTrace) {
+    } catch (e) {
       debugPrint('LocationValidator: Geocoding error: $e');
-      debugPrint('Stack: $stackTrace');
       return null;
     }
   }
@@ -269,95 +260,71 @@ class LocationValidator {
   // VALIDATE LOCATION
   // ============================================================================
 
-  /// Validasi apakah user berada dalam radius absensi yang diizinkan
   Future<Map<String, dynamic>> validateLocation({
     required double currentLat,
     required double currentLng,
     required OvertimeHistory overtimeItem,
   }) async {
     try {
-      // -----------------------------------------------------------------------
-      // PARSE LOCATION DATA SAFELY
-      // -----------------------------------------------------------------------
-      
-      final lokasi = _parseLokasi(overtimeItem.lokasi);
+      if (!_isValidCoordinate(currentLat, currentLng)) {
+        return _failure(
+          message: 'Koordinat perangkat tidak valid',
+          errorCode: 'invalid_current_coordinate',
+        );
+      }
 
-      debugPrint('LocationValidator: Parsed location data: $lokasi');
+      final lokasi = _parseMap(overtimeItem.lokasi);
 
-      // Jika data lokasi kosong/null → anggap valid (no reference)
       if (lokasi.isEmpty) {
-        debugPrint('LocationValidator: No location reference, allowing');
         return _successNoReference();
       }
 
-      // -----------------------------------------------------------------------
-      // PARSE TARGET COORDINATES
-      // -----------------------------------------------------------------------
-      
       final targetLat = _parseDouble(lokasi['latitude']);
       final targetLng = _parseDouble(lokasi['longitude']);
 
-      // Jika koordinat target tidak tersedia → anggap valid
       if (targetLat == null || targetLng == null) {
-        debugPrint('LocationValidator: No target coordinates, allowing');
         return _successNoReference();
       }
 
-      // -----------------------------------------------------------------------
-      // GET MAXIMUM RADIUS
-      // -----------------------------------------------------------------------
-      
-      final maxRadius = _getMaximumRadius(lokasi);
-      debugPrint('LocationValidator: Max radius: ${maxRadius.toStringAsFixed(0)}m');
-
-      // -----------------------------------------------------------------------
-      // CALCULATE DISTANCE
-      // -----------------------------------------------------------------------
-      
-      double distance;
-      
-      try {
-        distance = Geolocator.distanceBetween(
-          currentLat,
-          currentLng,
-          targetLat,
-          targetLng,
-        );
-      } catch (e) {
-        // Fallback ke perhitungan manual jika Geolocator gagal
-        debugPrint('LocationValidator: Geolocator distance failed, using manual: $e');
-        distance = calculateDistanceManual(
-          currentLat,
-          currentLng,
-          targetLat,
-          targetLng,
+      if (!_isValidCoordinate(targetLat, targetLng)) {
+        return _failure(
+          message: 'Koordinat target absensi tidak valid',
+          errorCode: 'invalid_target_coordinate',
         );
       }
 
-      debugPrint(
-        'LocationValidator: Distance: ${distance.toStringAsFixed(2)}m, '
-        'Max: ${maxRadius.toStringAsFixed(0)}m',
+      final maxRadius = _getMaximumRadius(lokasi);
+
+      final distance = _safeDistanceBetween(
+        currentLat,
+        currentLng,
+        targetLat,
+        targetLng,
       );
 
-      // -----------------------------------------------------------------------
-      // VALIDATE
-      // -----------------------------------------------------------------------
-      
+      if (distance == null) {
+        return _failure(
+          message: 'Gagal menghitung jarak lokasi',
+          errorCode: 'distance_calculation_failed',
+        );
+      }
+
       final isValid = distance <= maxRadius;
 
       return {
         'valid': isValid,
         'distance': distance,
+        'distance_text': formatDistance(distance),
         'max_radius': maxRadius,
+        'max_radius_text': formatDistance(maxRadius),
         'target_latitude': targetLat,
         'target_longitude': targetLng,
         'current_latitude': currentLat,
         'current_longitude': currentLng,
         'message': isValid
-            ? 'Lokasi valid (${distance.toStringAsFixed(0)}m dari target)'
-            : 'Di luar radius absensi (${distance.toStringAsFixed(0)}m, maks ${maxRadius.toStringAsFixed(0)}m)',
+            ? 'Lokasi valid (${formatDistance(distance)} dari target)'
+            : 'Di luar radius absensi (${formatDistance(distance)}, maksimal ${formatDistance(maxRadius)})',
       };
-
     } catch (e, stackTrace) {
       debugPrint('=' * 80);
       debugPrint('LocationValidator: validateLocation ERROR');
@@ -365,45 +332,71 @@ class LocationValidator {
       debugPrint('Stack: $stackTrace');
       debugPrint('=' * 80);
 
-      return {
-        'valid': false,
-        'distance': null,
-        'max_radius': null,
-        'message': 'Terjadi kesalahan saat validasi lokasi',
-        'error': e.toString(),
-      };
+      return _failure(
+        message: 'Terjadi kesalahan saat validasi lokasi',
+        errorCode: 'validation_exception',
+        error: e.toString(),
+      );
     }
   }
 
+  Future<Map<String, dynamic>> validateCurrentLocation({
+    required OvertimeHistory overtimeItem,
+  }) async {
+    final position = await getCurrentLocation();
+
+    if (position == null) {
+      return _failure(
+        message:
+            'Gagal mendapatkan lokasi perangkat. Pastikan GPS aktif dan izin lokasi diberikan.',
+        errorCode: 'current_location_not_found',
+      );
+    }
+
+    return validateLocation(
+      currentLat: position.latitude,
+      currentLng: position.longitude,
+      overtimeItem: overtimeItem,
+    );
+  }
+
   // ============================================================================
-  // BATCH VALIDATION (FOR MULTIPLE LOCATIONS)
+  // BATCH VALIDATION
   // ============================================================================
 
-  /// Validasi ke beberapa lokasi target sekaligus
-  /// Returns true jika minimal satu target valid
   Future<bool> validateAnyLocation({
     required double currentLat,
     required double currentLng,
     required List<Map<String, dynamic>> targetLocations,
   }) async {
+    if (!_isValidCoordinate(currentLat, currentLng)) return false;
     if (targetLocations.isEmpty) return true;
 
-    for (final target in targetLocations) {
+    for (final rawTarget in targetLocations) {
+      final target = _parseMap(rawTarget);
+      if (target.isEmpty) continue;
+
       final targetLat = _parseDouble(target['latitude']);
       final targetLng = _parseDouble(target['longitude']);
 
       if (targetLat == null || targetLng == null) continue;
+      if (!_isValidCoordinate(targetLat, targetLng)) continue;
 
       final maxRadius = _getMaximumRadius(target);
-      final distance = Geolocator.distanceBetween(
+
+      final distance = _safeDistanceBetween(
         currentLat,
         currentLng,
         targetLat,
         targetLng,
       );
 
+      if (distance == null) continue;
+
       if (distance <= maxRadius) {
-        debugPrint('LocationValidator: Found valid location at distance ${distance.toStringAsFixed(0)}m');
+        debugPrint(
+          'LocationValidator: Valid target found at ${formatDistance(distance)}',
+        );
         return true;
       }
     }
@@ -412,10 +405,9 @@ class LocationValidator {
   }
 
   // ============================================================================
-  // OPEN SETTINGS HELPERS
+  // OPEN SETTINGS
   // ============================================================================
 
-  /// Buka pengaturan GPS/Location
   Future<bool> openLocationSettings() async {
     try {
       await Geolocator.openLocationSettings();
@@ -426,7 +418,6 @@ class LocationValidator {
     }
   }
 
-  /// Buka pengaturan aplikasi
   Future<bool> openAppSettings() async {
     try {
       await Geolocator.openAppSettings();
@@ -438,73 +429,96 @@ class LocationValidator {
   }
 
   // ============================================================================
-  // PRIVATE HELPERS
+  // SAFE HELPERS
   // ============================================================================
 
-  /// Parse lokasi dengan aman, tangani null & tipe data tidak valid
-  Map<String, dynamic> _parseLokasi(dynamic lokasiData) {
+  Map<String, dynamic> _parseMap(dynamic value) {
     try {
-      // Null check
-      if (lokasiData == null) {
-        return {};
+      if (value == null) return {};
+
+      if (value is Map<String, dynamic>) {
+        return value;
       }
 
-      // Jika sudah Map<String, dynamic>
-      if (lokasiData is Map<String, dynamic>) {
-        return lokasiData;
+      if (value is Map) {
+        return Map<String, dynamic>.from(value);
       }
 
-      // Jika Map biasa (dari Firestore)
-      if (lokasiData is Map) {
-        return Map<String, dynamic>.from(lokasiData);
-      }
-
-      // Tipe data tidak dikenal
-      debugPrint('LocationValidator: Unknown lokasi type: ${lokasiData.runtimeType}');
+      debugPrint('LocationValidator: Unknown map type: ${value.runtimeType}');
       return {};
-
     } catch (e) {
-      debugPrint('LocationValidator: Error parsing lokasi: $e');
+      debugPrint('LocationValidator: Parse map error: $e');
       return {};
     }
   }
 
-  /// Status sukses tanpa referensi (tidak ada koordinat target)
-  Map<String, dynamic> _successNoReference() {
-    return {
-      'valid': true,
-      'distance': null,
-      'max_radius': null,
-      'message': 'Tidak ada koordinat referensi - lokasi diizinkan',
-    };
+  double? _parseDouble(dynamic value) {
+    try {
+      if (value == null) return null;
+
+      if (value is double) {
+        if (value.isNaN || value.isInfinite) return null;
+        return value;
+      }
+
+      if (value is int) {
+        return value.toDouble();
+      }
+
+      if (value is num) {
+        final result = value.toDouble();
+        if (result.isNaN || result.isInfinite) return null;
+        return result;
+      }
+
+      if (value is String) {
+        final cleaned = value.trim().replaceAll(',', '.');
+        final result = double.tryParse(cleaned);
+        if (result == null || result.isNaN || result.isInfinite) return null;
+        return result;
+      }
+
+      final result = double.tryParse(value.toString().trim());
+      if (result == null || result.isNaN || result.isInfinite) return null;
+      return result;
+    } catch (e) {
+      debugPrint('LocationValidator: Failed to parse double: $value ($e)');
+      return null;
+    }
   }
 
-  /// Mendapatkan radius maksimal dari data lokasi
+  bool _isValidCoordinate(double lat, double lng) {
+    return !lat.isNaN &&
+        !lng.isNaN &&
+        !lat.isInfinite &&
+        !lng.isInfinite &&
+        lat >= -90 &&
+        lat <= 90 &&
+        lng >= -180 &&
+        lng <= 180;
+  }
+
   double _getMaximumRadius(Map<String, dynamic> lokasi) {
     try {
-      // Cek radius dalam meter (custom)
       final customMeter = _parseDouble(lokasi['radius_meter']);
       if (customMeter != null && customMeter > 0) {
-        debugPrint('LocationValidator: Using custom radius: ${customMeter}m');
         return customMeter;
       }
 
-      // Cek radius dalam kilometer (custom)
       final customKm = _parseDouble(lokasi['radius_km']);
       if (customKm != null && customKm > 0) {
-        final radiusInMeter = customKm * 1000;
-        debugPrint('LocationValidator: Using custom radius: ${radiusInMeter}m (${customKm}km)');
-        return radiusInMeter;
+        return customKm * 1000;
       }
 
-      // Cek radius langsung (backward compatibility)
       final radius = _parseDouble(lokasi['radius']);
       if (radius != null && radius > 0) {
         return radius;
       }
 
-      // Radius berdasarkan jenis lokasi
-      final jenis = (lokasi['jenis']?.toString() ?? '').toLowerCase().trim();
+      final jenis = (lokasi['tipe_lokasi'] ?? lokasi['jenis'] ?? '')
+          .toString()
+          .toLowerCase()
+          .trim();
 
       switch (jenis) {
         case 'kantor':
@@ -522,7 +536,6 @@ class LocationValidator {
           return defaultRadiusProject;
 
         default:
-          // Default ke radius project yang lebih besar
           return defaultRadiusProject;
       }
     } catch (e) {
@@ -531,61 +544,75 @@ class LocationValidator {
     }
   }
 
-  // ============================================================================
-  // PARSE DOUBLE (SAFE)
-  // ============================================================================
-
-  /// Parse berbagai tipe data ke double dengan aman
-  double? _parseDouble(dynamic value) {
+  double? _safeDistanceBetween(
+    double lat1,
+    double lng1,
+    double lat2,
+    double lng2,
+  ) {
     try {
-      if (value == null) return null;
-
-      // Already double
-      if (value is double) {
-        return value.isNaN || value.isInfinite ? null : value;
+      if (!_isValidCoordinate(lat1, lng1) || !_isValidCoordinate(lat2, lng2)) {
+        return null;
       }
 
-      // int to double
-      if (value is int) {
-        return value.toDouble();
+      final distance = Geolocator.distanceBetween(lat1, lng1, lat2, lng2);
+
+      if (distance.isNaN || distance.isInfinite || distance < 0) {
+        return calculateDistanceManual(lat1, lng1, lat2, lng2);
       }
 
-      // num to double
-      if (value is num) {
-        return value.toDouble();
-      }
-
-      // String to double
-      if (value is String) {
-        return double.tryParse(value.trim());
-      }
-
-      // Fallback
-      return double.tryParse(value.toString().trim());
+      return distance;
     } catch (e) {
-      debugPrint('LocationValidator: Failed to parse double: $value ($e)');
-      return null;
+      debugPrint('LocationValidator: Geolocator distance failed: $e');
+      return calculateDistanceManual(lat1, lng1, lat2, lng2);
     }
   }
 
+  Map<String, dynamic> _successNoReference() {
+    return {
+      'valid': true,
+      'distance': null,
+      'distance_text': '-',
+      'max_radius': null,
+      'max_radius_text': '-',
+      'message': 'Tidak ada koordinat referensi - lokasi diizinkan',
+      'no_reference': true,
+    };
+  }
+
+  Map<String, dynamic> _failure({
+    required String message,
+    required String errorCode,
+    String? error,
+  }) {
+    return {
+      'valid': false,
+      'distance': null,
+      'distance_text': '-',
+      'max_radius': null,
+      'max_radius_text': '-',
+      'message': message,
+      'error_code': errorCode,
+      if (error != null) 'error': error,
+    };
+  }
+
   // ============================================================================
-  // DISTANCE CALCULATION (HAVERSINE FORMULA)
+  // DISTANCE CALCULATION - HAVERSINE
   // ============================================================================
 
-  /// Kalkulasi jarak manual (backup jika Geolocator gagal)
   double calculateDistanceManual(
     double lat1,
     double lon1,
     double lat2,
     double lon2,
   ) {
-    const double earthRadius = 6371000.0; // meters
+    const double earthRadius = 6371000.0;
 
     final double dLat = _toRadians(lat2 - lat1);
     final double dLon = _toRadians(lon2 - lon1);
 
-    final double a =
-        sin(dLat / 2) * sin(dLat / 2) +
+    final double a = sin(dLat / 2) * sin(dLat / 2) +
         cos(_toRadians(lat1)) *
             cos(_toRadians(lat2)) *
             sin(dLon / 2) *
@@ -593,48 +620,32 @@ class LocationValidator {
 
     final double c = 2 * atan2(sqrt(a), sqrt(1 - a));
 
-    return earthRadius * c;
+    final distance = earthRadius * c;
+
+    if (distance.isNaN || distance.isInfinite || distance < 0) {
+      return double.maxFinite;
+    }
+
+    return distance;
   }
 
-  /// Konversi derajat ke radian
   double _toRadians(double degree) {
     return degree * pi / 180;
   }
 
   // ============================================================================
-  // UTILITY
+  // FORMATTER
   // ============================================================================
 
-  /// Format jarak ke string yang readable
-  String formatDistance(double meters) {
+  String formatDistance(double? meters) {
+    if (meters == null || meters.isNaN || meters.isInfinite) {
+      return '-';
+    }
+
     if (meters < 1000) {
       return '${meters.toStringAsFixed(0)} meter';
-    } else {
-      return '${(meters / 1000).toStringAsFixed(2)} km';
     }
-  }
 
-  /// Cek apakah GPS tersedia dan permission granted
-  Future<Map<String, dynamic>> checkLocationAvailability() async {
-    try {
-      final serviceEnabled = await isLocationServiceEnabled();
-      final permission = await checkAndRequestPermission();
-      final isGranted = isPermissionGranted(permission);
-
-      return {
-        'available': serviceEnabled && isGranted,
-        'service_enabled': serviceEnabled,
-        'permission_granted': isGranted,
-        'permission_status': permission.toString(),
-      };
-    } catch (e) {
-      debugPrint('LocationValidator: Availability check error: $e');
-      return {
-        'available': false,
-        'service_enabled': false,
-        'permission_granted': false,
-        'error': e.toString(),
-      };
-    }
+    return '${(meters / 1000).toStringAsFixed(2)} km';
   }
 }
