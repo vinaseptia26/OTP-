@@ -1,35 +1,110 @@
 // lib/dashboard/manager/member_detail_screen.dart
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 class MemberDetailScreen extends StatefulWidget {
-  const MemberDetailScreen({super.key});
+  final String? memberId;
+  final Map<String, dynamic>? memberData;
+
+  const MemberDetailScreen({
+    super.key,
+    this.memberId,
+    this.memberData,
+  });
 
   @override
   State<MemberDetailScreen> createState() => _MemberDetailScreenState();
 }
 
 class _MemberDetailScreenState extends State<MemberDetailScreen> {
+  Map<String, dynamic> _member = {};
+  String _memberId = '';
+  bool _isLoading = true;
   int totalHariKerja = 0;
   bool isLoadingHariKerja = true;
 
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _fetchTotalHariKerja();
+  void initState() {
+    super.initState();
+    _initializeData();
+  }
+
+  void _initializeData() {
+    // Ambil data dari parameter widget (GoRouter)
+    if (widget.memberData != null) {
+      _member = widget.memberData!;
+      _memberId = widget.memberId ?? widget.memberData!['id'] ?? widget.memberData!['userId'] ?? '';
+      setState(() {
+        _isLoading = false;
+      });
+      _fetchTotalHariKerja();
+    } else if (widget.memberId != null) {
+      _memberId = widget.memberId!;
+      _fetchMemberData();
+    } else {
+      // Fallback ke ModalRoute (cara lama)
+      final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+      if (args != null) {
+        _member = args['member'] as Map<String, dynamic>? ?? {};
+        _memberId = args['memberId'] as String? ?? _member['id'] ?? _member['userId'] ?? '';
+        setState(() {
+          _isLoading = false;
+        });
+        _fetchTotalHariKerja();
+      } else {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _fetchMemberData() async {
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(_memberId)
+          .get();
+
+      if (doc.exists && mounted) {
+        setState(() {
+          _member = doc.data() ?? {};
+          _member['id'] = doc.id;
+          _isLoading = false;
+        });
+        _fetchTotalHariKerja();
+      } else {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Gagal memuat data: $e')),
+        );
+      }
+    }
   }
 
   Future<void> _fetchTotalHariKerja() async {
-    final args = ModalRoute.of(context)!.settings.arguments as Map<String, dynamic>?;
-    final member = args?['member'] as Map<String, dynamic>? ?? {};
-    final userId = member['id'] ?? member['userId'] ?? '';
+    if (_memberId.isEmpty) {
+      setState(() {
+        isLoadingHariKerja = false;
+      });
+      return;
+    }
 
     try {
       // Ambil semua dokumen lembur dengan jenis hari_kerja untuk user ini
       final QuerySnapshot snapshot = await FirebaseFirestore.instance
           .collection('lembur')
           .where('jenis_lembur', isEqualTo: 'hari_kerja')
-          .where('pengawas_id', isEqualTo: userId)
+          .where('pengawas_id', isEqualTo: _memberId)
           .get();
 
       if (mounted) {
@@ -44,7 +119,7 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
         final QuerySnapshot snapshot = await FirebaseFirestore.instance
             .collection('lembur')
             .where('jenis_lembur', isEqualTo: 'hari_kerja')
-            .where('mitra_id', isEqualTo: userId)
+            .where('mitra_id', isEqualTo: _memberId)
             .get();
 
         if (mounted) {
@@ -65,17 +140,31 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final args = ModalRoute.of(context)!.settings.arguments as Map<String, dynamic>?;
-    final member = args?['member'] as Map<String, dynamic>? ?? {};
-    final memberId = args?['memberId'] as String? ?? '';
+    if (_isLoading) {
+      return Scaffold(
+        backgroundColor: const Color(0xFFF5F7FA),
+        appBar: AppBar(
+          title: const Text('Detail Member'),
+          backgroundColor: const Color(0xFF1565C0),
+          foregroundColor: Colors.white,
+          elevation: 0,
+          centerTitle: true,
+        ),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
 
-    final bool isOnline = member['isOnline'] == true;
-    final String initial = (member['nama'] ?? member['nama_lengkap'] ?? '?')[0].toUpperCase();
+    final bool isOnline = _member['isOnline'] == true || _member['is_online'] == true;
+    final String namaLengkap = _member['nama'] ?? _member['nama_lengkap'] ?? 'Nama Member';
+    final String initial = namaLengkap.isNotEmpty ? namaLengkap[0].toUpperCase() : '?';
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5F7FA),
       appBar: AppBar(
-        title: const Text('Detail Member'),
+        title: Text(
+          'Detail Member',
+          style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
+        ),
         backgroundColor: const Color(0xFF1565C0),
         foregroundColor: Colors.white,
         elevation: 0,
@@ -94,7 +183,7 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
                 borderRadius: BorderRadius.circular(20),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.blue.withOpacity(0.08),
+                    color: Colors.blue.withValues(alpha: 0.08),
                     blurRadius: 20,
                     offset: const Offset(0, 10),
                   ),
@@ -120,7 +209,7 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
                           ),
                           boxShadow: [
                             BoxShadow(
-                              color: const Color(0xFF1565C0).withOpacity(0.3),
+                              color: const Color(0xFF1565C0).withValues(alpha: 0.3),
                               blurRadius: 15,
                               offset: const Offset(0, 5),
                             ),
@@ -150,7 +239,8 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
                             border: Border.all(color: Colors.white, width: 3),
                             boxShadow: [
                               BoxShadow(
-                                color: (isOnline ? Colors.green : Colors.grey).withOpacity(0.3),
+                                color: (isOnline ? Colors.green : Colors.grey)
+                                    .withValues(alpha: 0.3),
                                 blurRadius: 5,
                               ),
                             ],
@@ -162,11 +252,11 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
                   const SizedBox(height: 16),
                   // Nama
                   Text(
-                    member['nama'] ?? member['nama_lengkap'] ?? 'Nama Member',
-                    style: const TextStyle(
+                    namaLengkap,
+                    style: GoogleFonts.poppins(
                       fontSize: 22,
                       fontWeight: FontWeight.bold,
-                      color: Color(0xFF1A1A1A),
+                      color: const Color(0xFF1A1A1A),
                     ),
                   ),
                   const SizedBox(height: 4),
@@ -174,15 +264,15 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF1565C0).withOpacity(0.1),
+                      color: const Color(0xFF1565C0).withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Text(
-                      member['role'] ?? '-',
-                      style: const TextStyle(
+                      _member['role'] ?? '-',
+                      style: GoogleFonts.poppins(
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
-                        color: Color(0xFF1565C0),
+                        color: const Color(0xFF1565C0),
                       ),
                     ),
                   ),
@@ -199,7 +289,7 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
                       const SizedBox(width: 6),
                       Text(
                         isOnline ? 'Online' : 'Offline',
-                        style: TextStyle(
+                        style: GoogleFonts.poppins(
                           fontSize: 14,
                           color: isOnline ? const Color(0xFF4CAF50) : const Color(0xFF9E9E9E),
                           fontWeight: FontWeight.w500,
@@ -222,7 +312,7 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
                 borderRadius: BorderRadius.circular(20),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.blue.withOpacity(0.08),
+                    color: Colors.blue.withValues(alpha: 0.08),
                     blurRadius: 20,
                     offset: const Offset(0, 10),
                   ),
@@ -246,13 +336,16 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
                     ],
                   ),
                   const SizedBox(height: 20),
-                  _buildInfoRow(Icons.email_outlined, 'Email', member['email'] ?? '-'),
+                  _buildInfoRow(Icons.email_outlined, 'Email', _member['email'] ?? '-'),
                   const Divider(height: 24),
-                  _buildInfoRow(Icons.work_outline, 'Fungsi', member['fungsi'] ?? member['fungsi_label'] ?? '-'),
+                  _buildInfoRow(Icons.work_outline, 'Fungsi', 
+                      _member['fungsi'] ?? _member['fungsi_label'] ?? '-'),
                   const Divider(height: 24),
-                  _buildInfoRow(Icons.phone_outlined, 'Phone', member['phone'] ?? member['no_hp'] ?? '-'),
+                  _buildInfoRow(Icons.phone_outlined, 'Phone', 
+                      _member['phone'] ?? _member['no_hp'] ?? '-'),
                   const Divider(height: 24),
-                  _buildInfoRow(Icons.badge_outlined, 'Member ID', memberId.isEmpty ? (member['id'] ?? '-') : memberId),
+                  _buildInfoRow(Icons.badge_outlined, 'Member ID', 
+                      _memberId.isNotEmpty ? _memberId : (_member['id'] ?? '-')),
                 ],
               ),
             ),
@@ -268,7 +361,7 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
                 borderRadius: BorderRadius.circular(20),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.blue.withOpacity(0.08),
+                    color: Colors.blue.withValues(alpha: 0.08),
                     blurRadius: 20,
                     offset: const Offset(0, 10),
                   ),
@@ -297,7 +390,7 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
                       Expanded(
                         child: _buildStatBox(
                           icon: Icons.timer_outlined,
-                          value: '${member['totalLembur'] ?? 0}',
+                          value: '${_member['totalLembur'] ?? 0}',
                           label: 'Jam Lembur',
                           color: const Color(0xFF1565C0),
                         ),
@@ -343,19 +436,19 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
             children: [
               Text(
                 label,
-                style: const TextStyle(
+                style: GoogleFonts.poppins(
                   fontSize: 12,
-                  color: Color(0xFF9E9E9E),
+                  color: const Color(0xFF9E9E9E),
                   fontWeight: FontWeight.w500,
                 ),
               ),
               const SizedBox(height: 2),
               Text(
                 value,
-                style: const TextStyle(
+                style: GoogleFonts.poppins(
                   fontSize: 15,
                   fontWeight: FontWeight.w600,
-                  color: Color(0xFF1A1A1A),
+                  color: const Color(0xFF1A1A1A),
                 ),
               ),
             ],
@@ -374,9 +467,9 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.05),
+        color: color.withValues(alpha: 0.05),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withOpacity(0.1)),
+        border: Border.all(color: color.withValues(alpha: 0.1)),
       ),
       child: Column(
         children: [
@@ -393,9 +486,9 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
           const SizedBox(height: 4),
           Text(
             label,
-            style: const TextStyle(
+            style: GoogleFonts.poppins(
               fontSize: 12,
-              color: Color(0xFF757575),
+              color: const Color(0xFF757575),
               fontWeight: FontWeight.w500,
             ),
           ),

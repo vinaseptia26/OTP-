@@ -20,6 +20,7 @@ class DashboardService {
 
   static const String collectionPengajuan = 'pengajuan_lembur';
   static const String collectionLemburMitra = 'lembur_mitra';
+  static const String collectionMasterWorkers = 'master_workers';
 
   // ==================== SESSION ====================
   String generateSessionId() {
@@ -32,6 +33,13 @@ class DashboardService {
     final bytes = utf8.encode(data);
     final digest = sha256.convert(bytes);
     return digest.toString();
+  }
+
+  // ==================== CACHE ====================
+  void clearCache() {
+    _cachedData = null;
+    _lastCacheTime = null;
+    logger.i('🗑️ Dashboard cache cleared');
   }
 
   // ==================== REAL-TIME ONLINE USERS ====================
@@ -241,11 +249,13 @@ class DashboardService {
         _loadUsersData(),
         _loadLemburData(),
         _loadLogsData(),
+        loadMasterDataPekerja(),
       ]);
 
       final usersData = results[0] as Map<String, dynamic>;
       final lemburData = results[1] as Map<String, dynamic>;
       final logsData = results[2] as List<Map<String, dynamic>>;
+      final masterData = results[3] as Map<String, dynamic>;
 
       final dashboardData = DashboardData(
         totalUsers: usersData['totalUsers'],
@@ -260,6 +270,12 @@ class DashboardService {
         fungsiCount: usersData['fungsiCount'],
         roleDistribution: usersData['roleDistribution'],
         recentActivities: logsData,
+        // Master Data Pekerja
+        totalWorkers: masterData['totalWorkers'] ?? 0,
+        activeWorkers: masterData['activeWorkers'] ?? 0,
+        inactiveWorkers: masterData['inactiveWorkers'] ?? 0,
+        workerFungsiCount: masterData['workerFungsiCount'] ?? 0,
+        workerFungsiDistribution: masterData['workerFungsiDistribution'] ?? {},
       );
 
       _cachedData = dashboardData;
@@ -269,7 +285,7 @@ class DashboardService {
       logger.i(
           '✅ Dashboard data loaded in ${stopwatch.elapsedMilliseconds}ms');
       logger.i(
-          '📊 Data summary: ${usersData['totalUsers']} users, ${lemburData['pendingApprovals']} pending, ${logsData.length} activities');
+          '📊 Data summary: ${usersData['totalUsers']} users, ${lemburData['pendingApprovals']} pending, ${masterData['totalWorkers']} workers, ${logsData.length} activities');
 
       return dashboardData;
     } catch (e) {
@@ -354,23 +370,17 @@ class DashboardService {
     };
   }
 
-  // ============================================================================
-  // ⚡ PERBAIKAN: Query lembur dengan filter status & tanggal yang benar
-  // ============================================================================
   Future<Map<String, dynamic>> _loadLemburData() async {
     final startTime = DateTime.now();
     final today = DateTime.now();
     final firstDayOfMonth = DateTime(today.year, today.month, 1);
 
-    // Parallel queries dengan filter yang tepat
     final results = await Future.wait([
-      // Pending dari pengajuan_lembur (tetap)
       _firestore
           .collection(collectionPengajuan)
           .where('status', isEqualTo: 'pending')
           .limit(100)
           .get(),
-      // ✅ Total lembur bulan ini dari lembur_mitra HANYA yang disetujui/approved/selesai
       _firestore
           .collection(collectionLemburMitra)
           .where('tanggal',
@@ -378,7 +388,6 @@ class DashboardService {
           .where('status', whereIn: ['disetujui', 'approved', 'selesai'])
           .limit(100)
           .get(),
-      // Disetujui dari pengajuan_lembur (tetap ambil semua disetujui, lalu filter bulan)
       _firestore
           .collection(collectionPengajuan)
           .where('status', isEqualTo: 'disetujui')
@@ -390,11 +399,9 @@ class DashboardService {
     final overtimeSnapshot = results[1];
     final approvedSnapshot = results[2];
 
-    // Hitung approvedOvertime hanya yang tanggal lemburnya di bulan ini
     int approvedCount = 0;
     for (var i = 0; i < approvedSnapshot.docs.length; i++) {
       final data = approvedSnapshot.docs[i].data();
-      // ✅ Gunakan tanggal_lembur (bukan created_at) untuk filter bulan
       final tanggalLembur = data['tanggal_lembur'] ?? data['tanggal'];
       if (tanggalLembur is Timestamp) {
         final date = tanggalLembur.toDate();
@@ -405,12 +412,12 @@ class DashboardService {
     }
 
     logger.i(
-        '📋 Lembur data loaded (new collections) in ${DateTime.now().difference(startTime).inMilliseconds}ms');
+        '📋 Lembur data loaded in ${DateTime.now().difference(startTime).inMilliseconds}ms');
 
     return {
       'pendingApprovals': pendingSnapshot.docs.length,
-      'totalOvertime': overtimeSnapshot.docs.length,   // ✅ hanya yang valid (disetujui/approved/selesai)
-      'approvedOvertime': approvedCount,               // ✅ hanya bulan ini
+      'totalOvertime': overtimeSnapshot.docs.length,
+      'approvedOvertime': approvedCount,
     };
   }
 
@@ -478,10 +485,271 @@ class DashboardService {
     return activities.take(10).toList();
   }
 
-  void clearCache() {
-    _cachedData = null;
-    _lastCacheTime = null;
-    logger.i('🗑️ Dashboard cache cleared');
+  // 🔥 ==================== MASTER DATA PEKERJA ====================
+
+  /// Load master data pekerja untuk dashboard
+  Future<Map<String, dynamic>> loadMasterDataPekerja() async {
+    try {
+      final workersSnapshot = await _firestore
+          .collection(collectionMasterWorkers)
+          .get();
+
+      int activeWorkers = 0;
+      int inactiveWorkers = 0;
+      final Map<String, int> fungsiDistribution = {};
+
+      for (var doc in workersSnapshot.docs) {
+        final data = doc.data();
+        if ((data['is_active'] ?? true) == true) {
+          activeWorkers++;
+        } else {
+          inactiveWorkers++;
+        }
+        final fungsi = (data['fungsi'] ?? 'unknown').toString().toLowerCase();
+        fungsiDistribution[fungsi] = (fungsiDistribution[fungsi] ?? 0) + 1;
+      }
+
+      return {
+        'totalWorkers': workersSnapshot.docs.length,
+        'activeWorkers': activeWorkers,
+        'inactiveWorkers': inactiveWorkers,
+        'workerFungsiCount': fungsiDistribution.keys.length,
+        'workerFungsiDistribution': fungsiDistribution,
+      };
+    } catch (e) {
+      logger.e('Error loading master data: $e');
+      return {
+        'totalWorkers': 0, 'activeWorkers': 0, 'inactiveWorkers': 0,
+        'workerFungsiCount': 0, 'workerFungsiDistribution': <String, int>{},
+      };
+    }
+  }
+
+  /// Validasi ID Pekerja (untuk registrasi user)
+  Future<Map<String, dynamic>?> validateWorkerId(String idPekerja) async {
+    try {
+      final snapshot = await _firestore
+          .collection(collectionMasterWorkers)
+          .where('id_pekerja', isEqualTo: idPekerja.trim())
+          .where('is_active', isEqualTo: true)
+          .limit(1)
+          .get();
+
+      if (snapshot.docs.isEmpty) return null;
+
+      final data = snapshot.docs.first.data();
+      return {
+        'id': snapshot.docs.first.id,
+        'id_pekerja': data['id_pekerja'],
+        'nama': data['nama'],
+        'fungsi': data['fungsi'],
+        'role': data['role'], // 🔥 ROLE
+        'is_active': data['is_active'] ?? true,
+      };
+    } catch (e) {
+      logger.e('Error validating worker: $e');
+      return null;
+    }
+  }
+
+  /// Get workers list dengan filter & pagination
+  Future<Map<String, dynamic>> getWorkersList({
+    String? searchQuery, String? fungsi, bool? isActive,
+    int limit = 20, DocumentSnapshot? lastDoc,
+  }) async {
+    try {
+      Query<Map<String, dynamic>> query = _firestore
+          .collection(collectionMasterWorkers)
+          .orderBy('nama');
+
+      if (fungsi != null && fungsi != 'Semua') {
+        query = query.where('fungsi', isEqualTo: fungsi);
+      }
+      if (isActive != null) {
+        query = query.where('is_active', isEqualTo: isActive);
+      }
+      query = query.limit(limit);
+      if (lastDoc != null) query = query.startAfterDocument(lastDoc);
+
+      final snapshot = await query.get();
+      final workers = snapshot.docs.map((doc) {
+        final d = doc.data();
+        d['id'] = doc.id;
+        return d;
+      }).toList();
+
+      return {
+        'workers': workers,
+        'hasMore': snapshot.docs.length == limit,
+        'lastDoc': snapshot.docs.isNotEmpty ? snapshot.docs.last : null,
+      };
+    } catch (e) {
+      return {'workers': <Map<String, dynamic>>[], 'hasMore': false, 'lastDoc': null};
+    }
+  }
+
+  /// Get fungsi list untuk dropdown filter
+  Future<List<String>> getFungsiList() async {
+    try {
+      final snapshot = await _firestore
+          .collection(collectionMasterWorkers)
+          .where('is_active', isEqualTo: true)
+          .get();
+      final s = <String>{};
+      for (var doc in snapshot.docs) {
+        final f = doc.data()['fungsi']?.toString();
+        if (f != null && f.isNotEmpty) s.add(f);
+      }
+      return s.toList()..sort();
+    } catch (e) {
+      return ['operation', 'lab', 'maintenance', 'hsse', 'gpr', 'bs'];
+    }
+  }
+
+  /// Tambah satu pekerja
+  Future<bool> addWorker(Map<String, dynamic> data) async {
+    try {
+      final id = data['id_pekerja']?.toString().trim();
+      final nama = data['nama']?.toString().trim();
+      if (id == null || id.isEmpty) throw Exception('ID Pekerja kosong');
+      if (nama == null || nama.isEmpty) throw Exception('Nama kosong');
+
+      final exist = await _firestore
+          .collection(collectionMasterWorkers)
+          .where('id_pekerja', isEqualTo: id)
+          .limit(1)
+          .get();
+      if (exist.docs.isNotEmpty) throw Exception('ID $id sudah ada');
+
+      await _firestore.collection(collectionMasterWorkers).add({
+        'id_pekerja': id, 'nama': nama,
+        'fungsi': data['fungsi']?.toString().trim() ?? 'operation',
+        'role': data['role']?.toString().trim(), // 🔥 ROLE
+        'is_active': data['is_active'] ?? true,
+        'created_at': FieldValue.serverTimestamp(),
+        'updated_at': FieldValue.serverTimestamp(),
+        'created_by': _auth.currentUser?.email ?? 'unknown',
+      });
+      clearCache();
+      await logActivity('add_pekerja', 'Tambah: $id - $nama', generateSessionId());
+      return true;
+    } catch (e) { logger.e('Error addWorker: $e'); rethrow; }
+  }
+
+  /// Update pekerja
+  Future<bool> updateWorker(String docId, Map<String, dynamic> data) async {
+    try {
+      await _firestore.collection(collectionMasterWorkers).doc(docId).update({
+        ...data,
+        'updated_at': FieldValue.serverTimestamp(),
+        'updated_by': _auth.currentUser?.email ?? 'unknown',
+      });
+      clearCache();
+      await logActivity('update_pekerja', 'Update: $docId', generateSessionId());
+      return true;
+    } catch (e) { logger.e('Error updateWorker: $e'); rethrow; }
+  }
+
+  /// Delete pekerja
+  Future<bool> deleteWorker(String docId) async {
+    try {
+      await _firestore.collection(collectionMasterWorkers).doc(docId).delete();
+      clearCache();
+      await logActivity('delete_pekerja', 'Hapus: $docId', generateSessionId());
+      return true;
+    } catch (e) { logger.e('Error deleteWorker: $e'); return false; }
+  }
+
+  /// Toggle status aktif/non-aktif
+  Future<bool> toggleWorkerStatus(String docId, bool isActive) async {
+    try {
+      await _firestore.collection(collectionMasterWorkers).doc(docId).update({
+        'is_active': isActive,
+        'updated_at': FieldValue.serverTimestamp(),
+        'updated_by': _auth.currentUser?.email ?? 'unknown',
+      });
+      clearCache();
+      return true;
+    } catch (e) { return false; }
+  }
+
+  /// Import bulk dari CSV
+  Future<Map<String, dynamic>> importWorkersBulk(List<Map<String, dynamic>> workers) async {
+    int imported = 0, updated = 0, failed = 0;
+    try {
+      WriteBatch batch = _firestore.batch();
+      int count = 0;
+
+      for (var w in workers) {
+        try {
+          final id = w['id_pekerja']?.toString().trim() ?? '';
+          final nama = w['nama']?.toString().trim() ?? '';
+          if (id.isEmpty || nama.isEmpty) { failed++; continue; }
+
+          final exist = await _firestore
+              .collection(collectionMasterWorkers)
+              .where('id_pekerja', isEqualTo: id)
+              .limit(1)
+              .get();
+
+          final d = {
+            'id_pekerja': id, 'nama': nama,
+            'fungsi': w['fungsi']?.toString().trim() ?? 'operation',
+            'role': w['role']?.toString().trim() ?? w['departemen']?.toString().trim(), // 🔥 ROLE (fallback)
+            'is_active': w['is_active'] ?? true,
+            'updated_at': FieldValue.serverTimestamp(),
+            'updated_by': _auth.currentUser?.email ?? 'system',
+          };
+
+          if (exist.docs.isNotEmpty) {
+            batch.update(exist.docs.first.reference, d);
+            updated++;
+          } else {
+            d['created_at'] = FieldValue.serverTimestamp();
+            batch.set(_firestore.collection(collectionMasterWorkers).doc(), d);
+            imported++;
+          }
+          count++;
+          if (count >= 500) { await batch.commit(); batch = _firestore.batch(); count = 0; }
+        } catch (e) { failed++; }
+      }
+      if (count > 0) await batch.commit();
+      clearCache();
+      return {'success': true, 'imported': imported, 'updated': updated, 'failed': failed, 'total': workers.length, 'errors': <String>[]};
+    } catch (e) {
+      return {'success': false, 'imported': imported, 'updated': updated, 'failed': workers.length, 'total': workers.length, 'errors': [e.toString()]};
+    }
+  }
+
+  /// Export data pekerja ke CSV
+  Future<List<Map<String, dynamic>>> exportWorkers() async {
+    try {
+      final snapshot = await _firestore
+          .collection(collectionMasterWorkers)
+          .orderBy('id_pekerja')
+          .get();
+      return snapshot.docs.map((doc) {
+        final d = doc.data();
+        return {
+          'ID Pekerja': d['id_pekerja'] ?? '-',
+          'Nama': d['nama'] ?? '-',
+          'Fungsi': d['fungsi'] ?? '-',
+          'Role': d['role'] ?? d['departemen'] ?? '-', // 🔥 ROLE (fallback)
+          'Status': (d['is_active'] ?? true) ? 'Aktif' : 'Non-Aktif',
+        };
+      }).toList();
+    } catch (e) { return []; }
+  }
+
+  /// Get single worker by ID
+  Future<Map<String, dynamic>?> getWorkerById(String docId) async {
+    try {
+      final doc = await _firestore.collection(collectionMasterWorkers).doc(docId).get();
+      if (!doc.exists) return null;
+      final data = doc.data()!;
+      data['id'] = doc.id;
+      return data;
+    } catch (e) { return null; }
   }
 
   // ==================== LOCATION MONITORING ====================
@@ -641,7 +909,6 @@ class DashboardService {
 
   // ==================== LIVE STREAM UNTUK LOKASI AKTIF ====================
 
-  /// Stream semua user yang sedang mengirim live location.
   Stream<List<LocationData>> streamLiveLocations() {
     return _firestore
         .collection('live_locations')
@@ -658,11 +925,10 @@ class DashboardService {
               lat = (data['latitude'] as num).toDouble();
               lng = (data['longitude'] as num).toDouble();
             } else {
-              // fallback
               lat = -6.2; lng = 106.8;
             }
             return LocationData(
-              id: doc.id, // userId
+              id: doc.id,
               name: data['user_name'] ?? data['name'] ?? 'Unknown',
               lat: lat,
               lng: lng,
@@ -679,9 +945,7 @@ class DashboardService {
         });
   }
 
-  /// Hanya lokasi user yang sedang lembur disetujui & sudah check-in.
   Stream<List<LocationData>> streamActiveOvertimeLocations() {
-    // Ambil set mitra_id yang memenuhi syarat
     final activeMitraStream = _firestore
         .collection(collectionLemburMitra)
         .where('status', isEqualTo: 'disetujui')
@@ -1148,6 +1412,13 @@ class DashboardData {
   final Map<String, int> roleDistribution;
   final List<Map<String, dynamic>> recentActivities;
 
+  // 🔥 MASTER DATA PEKERJA FIELDS
+  final int totalWorkers;
+  final int activeWorkers;
+  final int inactiveWorkers;
+  final int workerFungsiCount;
+  final Map<String, int> workerFungsiDistribution;
+
   DashboardData({
     required this.totalUsers,
     required this.activeToday,
@@ -1161,6 +1432,11 @@ class DashboardData {
     required this.fungsiCount,
     required this.roleDistribution,
     required this.recentActivities,
+    this.totalWorkers = 0,
+    this.activeWorkers = 0,
+    this.inactiveWorkers = 0,
+    this.workerFungsiCount = 0,
+    this.workerFungsiDistribution = const {},
   });
 }
 

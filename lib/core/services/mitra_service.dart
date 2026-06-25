@@ -23,20 +23,18 @@ class MitraService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final NotificationService _notifService = NotificationService();
 
-  // ============================================================================
   // 📦 KONSTANTA NAMA COLLECTION
-  // ============================================================================
   static const String collectionUsers = 'users';
   static const String collectionPengajuan = 'pengajuan_lembur';
   static const String collectionLemburMitra = 'lembur_mitra';
   static const String collectionAbsensi = 'absensi';
   static const String collectionSettings = 'settings';
   static const String collectionConfirmations = 'mitra_confirmations';
+  static const String collectionOvertimeSchedules = 'overtime_schedules';
+  static const String collectionOvertimeHistory = 'overtime_history';
+  static const String collectionAttendance = 'attendance';
 
-  // ============================================================================
   // 🎨 HELPER METHODS
-  // ============================================================================
-
   String formatNumber(int number) {
     if (number >= 1000000) return '${(number / 1000000).toStringAsFixed(1)}M';
     if (number >= 1000) return '${(number / 1000).toStringAsFixed(1)}K';
@@ -168,13 +166,10 @@ class MitraService {
   Future<void> markAllNotificationsRead() async {
     final user = _auth.currentUser;
     if (user == null) return;
-    await _notifService.markAllNotificationsAsReadFlat(user.uid);
+    await _notifService.markAllAsRead(user.uid);
   }
 
-  // ============================================================================
   // 📊 LOAD DASHBOARD DATA (REFACTORED)
-  // ============================================================================
-
   Future<MitraDashboardData> loadDashboardData() async {
     final user = _auth.currentUser;
     if (user == null) throw Exception('User tidak login');
@@ -211,10 +206,7 @@ class MitraService {
     );
   }
 
-  // ============================================================================
   // 🔍 PRIVATE GETTER METHODS
-  // ============================================================================
-
   Future<Map<String, dynamic>> _getUserData(String userId) async {
     try {
       final doc = await _firestore.collection(collectionUsers).doc(userId).get();
@@ -230,6 +222,175 @@ class MitraService {
     final user = _auth.currentUser;
     if (user == null) throw Exception('Not logged in');
     return _getUserData(user.uid);
+  }
+
+  // ==================== ✅ METHOD-METHOD BARU ====================
+  
+  /// Mendapatkan jadwal lembur yang akan datang (minggu ini)
+  Future<List<Map<String, dynamic>>> getUpcomingSchedules() async {
+    try {
+      final user = _auth.currentUser;
+      if (user == null) return [];
+      
+      final now = DateTime.now();
+      final startOfWeek = now.subtract(Duration(days: now.weekday - 1));
+      final endOfWeek = startOfWeek.add(const Duration(days: 7));
+      
+      final snapshot = await _firestore
+          .collection(collectionLemburMitra)
+          .where('mitra_id', isEqualTo: user.uid)
+          .where('tanggal', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfWeek))
+          .where('tanggal', isLessThanOrEqualTo: Timestamp.fromDate(endOfWeek))
+          .orderBy('tanggal', descending: false)
+          .get();
+      
+      return snapshot.docs.map((doc) {
+        final data = doc.data();
+        final date = (data['tanggal'] as Timestamp).toDate();
+        return {
+          'id': doc.id,
+          'date': DateFormat('dd MMM yyyy', 'id_ID').format(date),
+          'jam_mulai': data['jam_mulai']?.toString() ?? '--:--',
+          'jam_selesai': data['jam_selesai']?.toString() ?? '--:--',
+          'description': data['alasan']?.toString() ?? data['keterangan']?.toString() ?? 'Lembur Rutin',
+          'status': data['status']?.toString() ?? 'scheduled',
+          'location': data['lokasi'] is Map ? data['lokasi']['pilihan']?.toString() ?? 'kantor' : 'kantor',
+        };
+      }).toList();
+    } catch (e) {
+      logger.e('Error getting upcoming schedules: $e');
+      return [];
+    }
+  }
+
+  /// Mendapatkan riwayat lembur terbaru
+  Future<List<Map<String, dynamic>>> getRecentOvertimeHistory({int limit = 5}) async {
+    try {
+      final user = _auth.currentUser;
+      if (user == null) return [];
+      
+      final snapshot = await _firestore
+          .collection(collectionLemburMitra)
+          .where('mitra_id', isEqualTo: user.uid)
+          .orderBy('tanggal', descending: true)
+          .limit(limit)
+          .get();
+      
+      return snapshot.docs.map((doc) {
+        final data = doc.data();
+        final date = (data['tanggal'] as Timestamp?)?.toDate() ?? DateTime.now();
+        return {
+          'id': doc.id,
+          'date': DateFormat('dd MMM yyyy', 'id_ID').format(date),
+          'jam_mulai': data['jam_mulai']?.toString() ?? '--:--',
+          'jam_selesai': data['jam_selesai']?.toString() ?? '--:--',
+          'income': (data['income_amount'] ?? data['actual_income'] ?? 0).toDouble(),
+          'status': data['status']?.toString() ?? 'pending',
+          'description': data['alasan']?.toString() ?? data['keterangan']?.toString() ?? '',
+        };
+      }).toList();
+    } catch (e) {
+      logger.e('Error getting recent overtime history: $e');
+      return [];
+    }
+  }
+
+  /// Mendapatkan status kehadiran hari ini
+  Future<Map<String, dynamic>?> getTodayAttendance() async {
+    try {
+      final user = _auth.currentUser;
+      if (user == null) return null;
+      
+      final now = DateTime.now();
+      final todayStart = DateTime(now.year, now.month, now.day);
+      final todayEnd = todayStart.add(const Duration(days: 1));
+      
+      final snapshot = await _firestore
+          .collection(collectionAbsensi)
+          .where('user_id', isEqualTo: user.uid)
+          .where('waktu', isGreaterThanOrEqualTo: Timestamp.fromDate(todayStart))
+          .where('waktu', isLessThan: Timestamp.fromDate(todayEnd))
+          .limit(1)
+          .get();
+      
+      if (snapshot.docs.isEmpty) {
+        return {
+          'is_checked_in': false,
+          'check_in_time': '--:--',
+          'working_hours': '0',
+          'status': 'Belum Absen',
+        };
+      }
+      
+      final data = snapshot.docs.first.data();
+      final checkInTime = (data['waktu'] as Timestamp?)?.toDate();
+      final checkOutTime = (data['waktu_checkout'] as Timestamp?)?.toDate();
+      
+      double workingHours = 0;
+      if (checkInTime != null) {
+        final endTime = checkOutTime ?? DateTime.now();
+        workingHours = endTime.difference(checkInTime).inMinutes / 60.0;
+      }
+      
+      return {
+        'is_checked_in': checkInTime != null,
+        'check_in_time': checkInTime != null 
+            ? DateFormat('HH:mm').format(checkInTime) 
+            : '--:--',
+        'working_hours': workingHours.toStringAsFixed(1),
+        'status': checkOutTime != null ? 'Selesai' : (checkInTime != null ? 'Sedang Bekerja' : 'Belum Absen'),
+      };
+    } catch (e) {
+      logger.e('Error getting today attendance: $e');
+      return null;
+    }
+  }
+
+  /// Mendapatkan data performa untuk grafik
+  Future<List<Map<String, dynamic>>> getPerformanceData({int months = 6}) async {
+    try {
+      final user = _auth.currentUser;
+      if (user == null) return [];
+      
+      final now = DateTime.now();
+      final startDate = DateTime(now.year, now.month - months + 1, 1);
+      
+      final snapshot = await _firestore
+          .collection(collectionLemburMitra)
+          .where('mitra_id', isEqualTo: user.uid)
+          .where('status', isEqualTo: 'selesai')
+          .where('tanggal', isGreaterThanOrEqualTo: Timestamp.fromDate(startDate))
+          .where('tanggal', isLessThanOrEqualTo: Timestamp.fromDate(now))
+          .get();
+      
+      // Group by month
+      final Map<String, double> monthlyData = {};
+      for (var doc in snapshot.docs) {
+        final data = doc.data();
+        final date = (data['tanggal'] as Timestamp).toDate();
+        final monthKey = DateFormat('yyyy-MM').format(date);
+        final hours = (data['actual_total_jam'] ?? 0).toDouble();
+        
+        monthlyData[monthKey] = (monthlyData[monthKey] ?? 0) + hours;
+      }
+      
+      // Fill all months in range
+      final result = <Map<String, dynamic>>[];
+      for (int i = months - 1; i >= 0; i--) {
+        final date = DateTime(now.year, now.month - i, 1);
+        final monthKey = DateFormat('yyyy-MM').format(date);
+        result.add({
+          'month': DateFormat('MMM', 'id_ID').format(date),
+          'year': date.year,
+          'hours': (monthlyData[monthKey] ?? 0.0).toDouble(),
+        });
+      }
+      
+      return result;
+    } catch (e) {
+      logger.e('Error getting performance data: $e');
+      return [];
+    }
   }
 
   Future<_LemburMitraResult> _getLemburMitraData(
@@ -403,14 +564,12 @@ class MitraService {
     }
   }
 
-  // ============================================================================
   // ✅ PERBAIKAN: query dengan mitra_ids array-contains
-  // ============================================================================
   Future<List<Map<String, dynamic>>> _getPendingRequests(String userId, DateTime now) async {
     try {
       final snapshot = await _firestore
           .collection(collectionPengajuan)
-          .where('mitra_ids', arrayContains: userId) // ← filter wajib untuk izin mitra
+          .where('mitra_ids', arrayContains: userId)
           .where('status', isEqualTo: 'pending')
           .where('tanggal_lembur',
               isGreaterThanOrEqualTo: Timestamp.fromDate(now.subtract(const Duration(days: 1))))
@@ -514,10 +673,7 @@ class MitraService {
     };
   }
 
-  // ============================================================================
-  // ✅ CHECK-IN LEMBUR (tanpa update ke pengajuan_lembur)
-  // ============================================================================
-
+  // ✅ CHECK-IN LEMBUR
   Future<void> checkInLembur(String lemburId, String userName) async {
     final user = _auth.currentUser;
     if (user == null) throw Exception('User tidak login');
@@ -539,9 +695,6 @@ class MitraService {
         'absensi_nama': userName,
         'updated_at': now,
       });
-
-      // ⛔ JANGAN update pengajuan_lembur dari mitra
-      // if (groupId != null && groupId.isNotEmpty) { ... }  // dihapus
 
       batch.set(_firestore.collection(collectionAbsensi).doc(), {
         'lembur_id': lemburId,
@@ -572,10 +725,7 @@ class MitraService {
     }
   }
 
-  // ============================================================================
-  // ✅ CHECK-OUT LEMBUR (tanpa update ke pengajuan_lembur)
-  // ============================================================================
-
+  // ✅ CHECK-OUT LEMBUR
   Future<double> checkOutLembur(
     String lemburId,
     String userName,
@@ -619,9 +769,6 @@ class MitraService {
         'updated_at': now,
       });
 
-      // ⛔ JANGAN update pengajuan_lembur dari mitra
-      // if (groupId != null && groupId.isNotEmpty) { ... }  // dihapus
-
       final absensiQuery = await _firestore
           .collection(collectionAbsensi)
           .where('lembur_id', isEqualTo: lemburId)
@@ -659,10 +806,7 @@ class MitraService {
     }
   }
 
-  // ============================================================================
   // 💰 KALKULASI INCOME
-  // ============================================================================
-
   double _calculateIncome(double hours, Map<String, dynamic> settings) {
     const defaultRate = 17341.04;
     const defaultM1 = 2.0;

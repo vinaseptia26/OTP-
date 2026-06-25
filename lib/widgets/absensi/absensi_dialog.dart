@@ -1,27 +1,17 @@
-// ============================================================================
 // lib/widgets/absensi/absensi_dialog.dart
-// MOBILE OPTIMIZED + FULLY VALIDATED VERSION
-// Last Updated: 2026-05-12
 // ============================================================================
-// FEATURES:
-// ✅ Full mobile optimized
-// ✅ SafeArea support
-// ✅ Permission handling lengkap
-// ✅ GPS validation with timeout
-// ✅ Anti double submit
-// ✅ Firebase upload with retry
-// ✅ Mounted safety checks everywhere
-// ✅ Temp file automatic cleanup
-// ✅ Better loading states with messages
-// ✅ Retry system for failed operations
-// ✅ Camera fallback (front → rear → gallery)
-// ✅ Image preview with error handling
-// ✅ Better UX with step indicator
-// ✅ Low-end device optimized (compressed images)
-// ✅ Android/iOS ready
-// ✅ Firebase Auth null safety
-// ✅ Unique filename generation (anti-konflik)
-// ✅ Consistent error logging
+// ABSENSI DIALOG - CLOUDINARY VERSION + KONFIRMASI KETERLAMBATAN
+// ============================================================================
+// Fitur:
+// ✅ Verifikasi GPS dengan timeout & retry
+// ✅ Kamera depan → belakang → galeri (fallback)
+// ✅ Watermark otomatis (koordinat, waktu, nama)
+// ✅ Upload ke Cloudinary (GRATIS 25GB)
+// ✅ Simpan data ke Firestore
+// ✅ Anti double-submit
+// ✅ Cleanup temp file otomatis
+// ✅ UI Corporate dengan step indicator
+// ✅ Konfirmasi Keterlambatan (NEW)
 // ============================================================================
 
 import 'dart:async';
@@ -29,21 +19,22 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:intl/intl.dart';
+import 'package:intl/intl.dart';  // ← TAMBAHKAN
 import 'package:path_provider/path_provider.dart';
 
-import '/core/services/overtime_history_service.dart';
+// Service imports
+import '/core/services/overtime_absensi_service.dart';
 import '/core/services/watermark_service.dart';
+import '/core/services/cloudinary_storage_service.dart';
 import '/widgets/absensi/location_validator.dart';
 
-// ============================================================================
-// ABSENSI DIALOG WIDGET
-// ============================================================================
+/// ============================================================================
+/// ABSENSI DIALOG WIDGET
+/// ============================================================================
 
 class AbsensiDialog extends StatefulWidget {
   final OvertimeHistory overtimeItem;
@@ -59,7 +50,6 @@ class AbsensiDialog extends StatefulWidget {
     BuildContext context,
     OvertimeHistory overtimeItem,
   ) {
-    // Validasi context
     if (!context.mounted) {
       debugPrint('AbsensiDialog: Context not mounted');
       return Future.value(null);
@@ -73,9 +63,7 @@ class AbsensiDialog extends StatefulWidget {
       isDismissible: false,
       backgroundColor: Colors.transparent,
       barrierColor: Colors.black54,
-      builder: (_) => AbsensiDialog(
-        overtimeItem: overtimeItem,
-      ),
+      builder: (_) => AbsensiDialog(overtimeItem: overtimeItem),
     );
   }
 
@@ -83,46 +71,45 @@ class AbsensiDialog extends StatefulWidget {
   State<AbsensiDialog> createState() => _AbsensiDialogState();
 }
 
-// ============================================================================
-// STATE
-// ============================================================================
+/// ============================================================================
+/// STATE
+/// ============================================================================
 
 class _AbsensiDialogState extends State<AbsensiDialog> {
   // ===========================================================================
   // SERVICES
   // ===========================================================================
-
   final ImagePicker _imagePicker = ImagePicker();
   final LocationValidator _locationValidator = LocationValidator();
   final WatermarkService _watermarkService = WatermarkService();
-  final OvertimeHistoryService _historyService = OvertimeHistoryService();
+  final OvertimeAbsensiService _absensiService = OvertimeAbsensiService();
+  final CloudinaryStorageService _cloudinaryService = CloudinaryStorageService();
 
   // ===========================================================================
   // STATES
   // ===========================================================================
-
   bool _isLoadingLocation = false;
   bool _isTakingPhoto = false;
   bool _isSubmitting = false;
-
-  String _statusMessage = 'Memverifikasi lokasi...';
+  String _statusMessage = 'Memverifikasi lokasi Anda...';
   String? _errorDetail;
-
   Position? _currentPosition;
   String? _currentAddress;
-
   XFile? _capturedImage;
   File? _previewFile;
-
   bool _locationValid = false;
   bool _hasAttemptedRetry = false;
-
   double? _distanceInMeters;
   double? _maxRadius;
-
-  // Retry counter
-  int _retryCount = 0;
   static const int _maxRetries = 2;
+
+  bool _isCheckingStatus = true;
+  bool _isLate = false;
+  bool _canConfirm = false;
+  bool _showKonfirmasiForm = false;
+  bool? _melakukanLembur;
+  final TextEditingController _alasanController = TextEditingController();
+  File? _buktiFotoTerlambat;
 
   // ===========================================================================
   // LIFECYCLE
@@ -131,19 +118,15 @@ class _AbsensiDialogState extends State<AbsensiDialog> {
   @override
   void initState() {
     super.initState();
-    
-    // Delay sedikit untuk animasi sheet
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        _startLocationVerification();
-      }
+      if (mounted) _initCheck();  // ← GANTI: cek dulu status keterlambatan
     });
   }
 
   @override
   void dispose() {
-    // Cleanup preview file jika ada
     _cleanupPreviewFile();
+    _alasanController.dispose();  // ← TAMBAHKAN
     super.dispose();
   }
 
@@ -165,10 +148,7 @@ class _AbsensiDialogState extends State<AbsensiDialog> {
 
   void _showSnackBar(String message, Color color) {
     if (!mounted) return;
-    
-    // Clear existing snackbars
     ScaffoldMessenger.of(context).clearSnackBars();
-    
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Row(
@@ -186,10 +166,7 @@ class _AbsensiDialogState extends State<AbsensiDialog> {
             Expanded(
               child: Text(
                 message,
-                style: GoogleFonts.poppins(
-                  fontSize: 13,
-                  color: Colors.white,
-                ),
+                style: GoogleFonts.poppins(fontSize: 13, color: Colors.white),
               ),
             ),
           ],
@@ -197,13 +174,8 @@ class _AbsensiDialogState extends State<AbsensiDialog> {
         backgroundColor: color,
         behavior: SnackBarBehavior.floating,
         margin: const EdgeInsets.all(16),
-        padding: const EdgeInsets.symmetric(
-          horizontal: 16,
-          vertical: 12,
-        ),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         duration: const Duration(seconds: 4),
       ),
     );
@@ -211,7 +183,6 @@ class _AbsensiDialogState extends State<AbsensiDialog> {
 
   void _updateStatus(String message, {String? errorDetail}) {
     if (!mounted) return;
-    
     setState(() {
       _statusMessage = message;
       _errorDetail = errorDetail;
@@ -219,11 +190,44 @@ class _AbsensiDialogState extends State<AbsensiDialog> {
   }
 
   // ===========================================================================
+  // INIT CHECK (NEW)
+  // ===========================================================================
+
+  Future<void> _initCheck() async {
+    setState(() { 
+      _isCheckingStatus = true; 
+      _statusMessage = 'Mengecek status absensi...'; 
+    });
+    try {
+      final status = await _absensiService.cekStatusKeterlambatan(widget.overtimeItem.id);
+      if (mounted) {
+        setState(() {
+          _isCheckingStatus = false;
+          _isLate = status['isLate'] == true;
+          _canConfirm = status['canConfirm'] == true;
+          if (_canConfirm) {
+            _statusMessage = '⚠️ Sudah lewat batas absensi normal';
+            _errorDetail = 'Anda dapat mengkonfirmasi keterlambatan';
+          } else {
+            _statusMessage = 'Memverifikasi lokasi Anda...';
+          }
+        });
+        if (!_canConfirm) _startLocationVerification();
+      }
+    } catch (e) {
+      if (mounted) setState(() { 
+        _isCheckingStatus = false; 
+        _statusMessage = 'Gagal cek status'; 
+      });
+    }
+  }
+
+  // ===========================================================================
   // LOCATION VERIFICATION
   // ===========================================================================
 
   Future<void> _startLocationVerification() async {
-    // 🛡️ Anti double-tap
+    // Anti double-tap
     if (_isLoadingLocation || _isSubmitting) {
       debugPrint('Absensi: Already processing, ignoring location request');
       return;
@@ -238,20 +242,15 @@ class _AbsensiDialogState extends State<AbsensiDialog> {
     });
 
     try {
-      // -----------------------------------------------------------------------
-      // CHECK GPS SERVICE
-      // -----------------------------------------------------------------------
-      
+      // Check GPS service
       _updateStatus('Memeriksa GPS...');
-      
       final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      
+
       if (!serviceEnabled) {
         _updateStatus(
           'GPS tidak aktif',
           errorDetail: 'Aktifkan GPS di pengaturan perangkat Anda',
         );
-        
         if (mounted) {
           _showRetryDialog(
             'GPS Tidak Aktif',
@@ -261,25 +260,20 @@ class _AbsensiDialogState extends State<AbsensiDialog> {
         return;
       }
 
-      // -----------------------------------------------------------------------
-      // CHECK PERMISSION
-      // -----------------------------------------------------------------------
-      
+      // Check permission
       _updateStatus('Memeriksa izin lokasi...');
-
       LocationPermission permission = await Geolocator.checkPermission();
-      
+
       if (permission == LocationPermission.denied) {
         _updateStatus('Meminta izin lokasi...');
         permission = await Geolocator.requestPermission();
       }
-      
+
       if (permission == LocationPermission.denied) {
         _updateStatus(
           'Izin lokasi ditolak',
           errorDetail: 'Anda harus mengizinkan akses lokasi untuk absensi',
         );
-        
         if (mounted) {
           _showRetryDialog(
             'Izin Lokasi Diperlukan',
@@ -288,33 +282,22 @@ class _AbsensiDialogState extends State<AbsensiDialog> {
         }
         return;
       }
-      
+
       if (permission == LocationPermission.deniedForever) {
         _updateStatus(
           'Izin lokasi ditolak permanen',
           errorDetail: 'Buka Pengaturan > Aplikasi > Izin > Lokasi',
         );
-        
-        if (mounted) {
-          _showOpenSettingsDialog();
-        }
+        if (mounted) _showOpenSettingsDialog();
         return;
       }
 
-      // -----------------------------------------------------------------------
-      // GET LOCATION WITH TIMEOUT
-      // -----------------------------------------------------------------------
-      
+      // Get current location
       _updateStatus('Mendapatkan lokasi...');
-
-      final position = await _locationValidator
-          .getCurrentLocation()
-          .timeout(
-            const Duration(seconds: 25),
-            onTimeout: () {
-              throw TimeoutException('Waktu mendapatkan lokasi habis');
-            },
-          );
+      final position = await _locationValidator.getCurrentLocation().timeout(
+        const Duration(seconds: 25),
+        onTimeout: () => throw TimeoutException('Waktu mendapatkan lokasi habis'),
+      );
 
       if (position == null) {
         _updateStatus(
@@ -327,31 +310,19 @@ class _AbsensiDialogState extends State<AbsensiDialog> {
       _currentPosition = position;
       debugPrint('Absensi: Location obtained - ${position.latitude}, ${position.longitude}');
 
-      // -----------------------------------------------------------------------
-      // GET ADDRESS (OPTIONAL - NON-BLOCKING)
-      // -----------------------------------------------------------------------
-      
+      // Get address (optional, non-blocking)
       _updateStatus('Mendapatkan alamat...');
-
       try {
         _currentAddress = await _locationValidator
-            .getAddressFromCoordinates(
-              position.latitude,
-              position.longitude,
-            )
+            .getAddressFromCoordinates(position.latitude, position.longitude)
             .timeout(const Duration(seconds: 10));
       } catch (e) {
         debugPrint('Absensi: Address lookup failed: $e');
         _currentAddress = 'Alamat tidak tersedia';
-        // Tidak throw error karena alamat opsional
       }
 
-      // -----------------------------------------------------------------------
-      // VALIDATE LOCATION AGAINST OVERTIME ITEM
-      // -----------------------------------------------------------------------
-      
+      // Validate location against overtime item
       _updateStatus('Memvalidasi lokasi...');
-
       final validationResult = await _locationValidator
           .validateLocation(
             currentLat: position.latitude,
@@ -364,59 +335,40 @@ class _AbsensiDialogState extends State<AbsensiDialog> {
       _distanceInMeters = validationResult['distance'] as double?;
       _maxRadius = validationResult['max_radius'] as double?;
 
-      debugPrint(
-        'Absensi: Validation - valid: $_locationValid, '
-        'distance: ${_distanceInMeters?.toStringAsFixed(0)}m, '
-        'maxRadius: ${_maxRadius?.toStringAsFixed(0)}m',
-      );
-
       if (!mounted) return;
 
-      // Update status berdasarkan hasil validasi
       setState(() {
         _isLoadingLocation = false;
-        
+
         if (_locationValid) {
           _statusMessage = '✅ Lokasi valid! Silakan ambil selfie.';
           _errorDetail = null;
-          _retryCount = 0; // Reset retry counter
         } else {
           _statusMessage = '❌ Anda berada di luar radius absensi.';
-          
           if (_distanceInMeters != null && _maxRadius != null) {
-            _errorDetail = 'Jarak Anda ${_distanceInMeters!.toStringAsFixed(0)}m '
+            _errorDetail =
+                'Jarak Anda ${_distanceInMeters!.toStringAsFixed(0)}m '
                 'dari lokasi. Maksimal ${_maxRadius!.toStringAsFixed(0)}m.';
           } else {
             _errorDetail = 'Pastikan Anda berada di lokasi yang ditentukan.';
           }
         }
       });
-
     } on TimeoutException catch (e) {
       debugPrint('Absensi: Location timeout: $e');
-      
       if (!mounted) return;
       setState(() => _isLoadingLocation = false);
-      
       _updateStatus(
         'Waktu verifikasi habis',
         errorDetail: 'Koneksi lambat atau sinyal GPS lemah',
       );
-      
       _showSnackBar(
         'Timeout. Silakan coba lagi dengan koneksi yang lebih baik.',
         Colors.orange,
       );
-      
-    } catch (e, stackTrace) {
-      debugPrint('=' * 80);
-      debugPrint('Absensi: Location verification error');
-      debugPrint('Error: $e');
-      debugPrint('Stack: $stackTrace');
-      debugPrint('=' * 80);
-      
+    } catch (e) {
+      debugPrint('Absensi: Location verification error: $e');
       if (!mounted) return;
-      
       setState(() {
         _isLoadingLocation = false;
         _statusMessage = 'Gagal verifikasi lokasi';
@@ -430,18 +382,13 @@ class _AbsensiDialogState extends State<AbsensiDialog> {
   // ===========================================================================
 
   Future<void> _takeSelfie() async {
-    // 🛡️ Anti double-tap
     if (_isTakingPhoto || _isSubmitting) {
       debugPrint('Absensi: Already taking photo or submitting');
       return;
     }
 
-    // 🛡️ Validasi lokasi
     if (!_locationValid) {
-      _showSnackBar(
-        'Lokasi tidak valid. Silakan verifikasi ulang.',
-        Colors.red,
-      );
+      _showSnackBar('Lokasi tidak valid. Silakan verifikasi ulang.', Colors.red);
       return;
     }
 
@@ -455,28 +402,22 @@ class _AbsensiDialogState extends State<AbsensiDialog> {
     try {
       XFile? photo;
 
-      // -----------------------------------------------------------------------
-      // ATTEMPT 1: Front Camera (Selfie)
-      // -----------------------------------------------------------------------
+      // Attempt 1: Front Camera (Selfie)
       try {
         _updateStatus('Mengambil foto (kamera depan)...');
-        
         photo = await _imagePicker.pickImage(
           source: ImageSource.camera,
           preferredCameraDevice: CameraDevice.front,
-          imageQuality: 60, // Kompresi untuk low-end devices
+          imageQuality: 60,
           maxWidth: 1280,
           maxHeight: 1280,
         );
       } catch (e) {
         debugPrint('Absensi: Front camera failed: $e');
-        
-        // -----------------------------------------------------------------------
-        // ATTEMPT 2: Rear Camera (Fallback)
-        // -----------------------------------------------------------------------
+
+        // Attempt 2: Rear Camera
         try {
           _updateStatus('Mengambil foto (kamera belakang)...');
-          
           photo = await _imagePicker.pickImage(
             source: ImageSource.camera,
             preferredCameraDevice: CameraDevice.rear,
@@ -486,12 +427,9 @@ class _AbsensiDialogState extends State<AbsensiDialog> {
           );
         } catch (e2) {
           debugPrint('Absensi: Rear camera also failed: $e2');
-          
-          // -----------------------------------------------------------------------
-          // ATTEMPT 3: Gallery (Last Resort)
-          // -----------------------------------------------------------------------
+
+          // Attempt 3: Gallery (Last Resort)
           _updateStatus('Kamera tidak tersedia, membuka galeri...');
-          
           photo = await _imagePicker.pickImage(
             source: ImageSource.gallery,
             imageQuality: 60,
@@ -507,35 +445,30 @@ class _AbsensiDialogState extends State<AbsensiDialog> {
       if (photo == null) {
         setState(() {
           _isTakingPhoto = false;
-          _statusMessage = _locationValid
-              ? '✅ Lokasi valid! Silakan ambil selfie.'
-              : _statusMessage;
+          _statusMessage =
+              _locationValid ? '✅ Lokasi valid! Silakan ambil selfie.' : _statusMessage;
         });
-        
-        _showSnackBar(
-          'Pengambilan foto dibatalkan.',
-          Colors.grey,
-        );
+        _showSnackBar('Pengambilan foto dibatalkan.', Colors.grey);
         return;
       }
 
-      // Validasi file exists
+      // Validate file
       final file = File(photo.path);
       if (!await file.exists()) {
         throw Exception('File foto tidak ditemukan setelah diambil');
       }
 
-      // Validasi file size (max 10MB)
       final fileSize = await file.length();
       if (fileSize > 10 * 1024 * 1024) {
-        throw Exception('Ukuran foto terlalu besar (${(fileSize / 1024 / 1024).toStringAsFixed(1)}MB). Maksimal 10MB.');
+        throw Exception(
+          'Ukuran foto terlalu besar '
+          '(${(fileSize / 1024 / 1024).toStringAsFixed(1)}MB). Maksimal 10MB.',
+        );
       }
-
-      debugPrint('Absensi: Photo captured - size: ${(fileSize / 1024).toStringAsFixed(0)}KB');
 
       if (!mounted) return;
 
-      // Cleanup foto lama jika ada
+      // Cleanup old preview
       await _cleanupPreviewFile();
 
       setState(() {
@@ -545,22 +478,14 @@ class _AbsensiDialogState extends State<AbsensiDialog> {
         _statusMessage = '📸 Foto berhasil! Silakan submit absensi.';
         _errorDetail = null;
       });
-
-    } catch (e, stackTrace) {
-      debugPrint('=' * 80);
-      debugPrint('Absensi: Photo capture error');
-      debugPrint('Error: $e');
-      debugPrint('Stack: $stackTrace');
-      debugPrint('=' * 80);
-
+    } catch (e) {
+      debugPrint('Absensi: Photo capture error: $e');
       if (!mounted) return;
-
       setState(() {
         _isTakingPhoto = false;
         _statusMessage = 'Gagal mengambil foto';
         _errorDetail = e.toString().replaceAll('Exception: ', '');
       });
-
       _showSnackBar(
         'Gagal mengambil foto: ${e.toString().replaceAll('Exception: ', '')}',
         Colors.red,
@@ -569,41 +494,49 @@ class _AbsensiDialogState extends State<AbsensiDialog> {
   }
 
   // ===========================================================================
-  // SUBMIT ABSENSI
+  // PICK BUKTI FOTO (NEW)
+  // ===========================================================================
+
+  Future<void> _pickBuktiFoto() async {
+    try {
+      final photo = await _imagePicker.pickImage(
+        source: ImageSource.camera,
+        imageQuality: 60,
+        maxWidth: 1280,
+        maxHeight: 1280,
+      );
+      if (photo != null && mounted) {
+        setState(() => _buktiFotoTerlambat = File(photo.path));
+      }
+    } catch (e) {
+      _showSnackBar('Gagal mengambil foto: $e', Colors.red);
+    }
+  }
+
+  // ===========================================================================
+  // SUBMIT ABSENSI (CLOUDINARY VERSION)
   // ===========================================================================
 
   Future<void> _submitAbsensi() async {
-    // 🛡️ Anti double submit
+    // Anti double-submit
     if (_isSubmitting) {
       debugPrint('Absensi: Already submitting');
       return;
     }
 
-    // 🛡️ Validasi foto
+    // Validasi
     if (_capturedImage == null) {
-      _showSnackBar(
-        'Silakan ambil foto terlebih dahulu.',
-        Colors.orange,
-      );
+      _showSnackBar('Silakan ambil foto terlebih dahulu.', Colors.orange);
       return;
     }
-
-    // 🛡️ Validasi lokasi
     if (_currentPosition == null) {
-      _showSnackBar(
-        'Lokasi tidak tersedia. Silakan verifikasi ulang.',
-        Colors.red,
-      );
+      _showSnackBar('Lokasi tidak tersedia. Silakan verifikasi ulang.', Colors.red);
       return;
     }
 
-    // 🛡️ Validasi user login
     final currentUser = FirebaseAuth.instance.currentUser;
     if (currentUser == null) {
-      _showSnackBar(
-        'Anda harus login terlebih dahulu.',
-        Colors.red,
-      );
+      _showSnackBar('Anda harus login terlebih dahulu.', Colors.red);
       return;
     }
 
@@ -618,14 +551,12 @@ class _AbsensiDialogState extends State<AbsensiDialog> {
         _errorDetail = null;
       });
 
-      // -----------------------------------------------------------------------
+      // =====================================================================
       // STEP 1: ADD WATERMARK
-      // -----------------------------------------------------------------------
-      
+      // =====================================================================
       _updateStatus('🎨 Menambahkan watermark...');
 
       Uint8List watermarkedBytes;
-      
       try {
         watermarkedBytes = await _watermarkService
             .addWatermark(
@@ -639,10 +570,7 @@ class _AbsensiDialogState extends State<AbsensiDialog> {
             .timeout(const Duration(seconds: 15));
       } catch (e) {
         debugPrint('Absensi: Watermark failed: $e');
-        
-        // Jika watermark gagal, gunakan foto original
         _updateStatus('⚠️ Watermark gagal, menggunakan foto original...');
-        
         final originalFile = File(_capturedImage!.path);
         watermarkedBytes = await originalFile.readAsBytes();
       }
@@ -651,229 +579,118 @@ class _AbsensiDialogState extends State<AbsensiDialog> {
         throw Exception('Data foto kosong setelah processing');
       }
 
-      debugPrint('Absensi: Image processed - ${watermarkedBytes.length} bytes');
-
       if (!mounted) return;
 
-      // -----------------------------------------------------------------------
+      // =====================================================================
       // STEP 2: CREATE TEMP FILE
-      // -----------------------------------------------------------------------
-      
+      // =====================================================================
       _updateStatus('💾 Menyimpan file sementara...');
 
       final tempDir = await getTemporaryDirectory();
-      
-      // Buat nama file unik untuk hindari konflik
       final timestamp = DateTime.now().millisecondsSinceEpoch;
       final uniqueId = '${currentUser.uid}_$timestamp';
-      
-      tempFile = File(
-        '${tempDir.path}/absensi_$uniqueId.jpg',
-      );
-      
+      tempFile = File('${tempDir.path}/absensi_$uniqueId.jpg');
       await tempFile.writeAsBytes(watermarkedBytes);
-      
-      debugPrint('Absensi: Temp file created: ${tempFile.path}');
 
       if (!mounted) return;
 
-      // -----------------------------------------------------------------------
-      // STEP 3: UPLOAD TO FIREBASE STORAGE
-      // -----------------------------------------------------------------------
-      
-      _updateStatus('☁️ Mengupload ke server...');
+      // =====================================================================
+      // STEP 3: UPLOAD TO CLOUDINARY (GRATIS 25GB!)
+      // =====================================================================
+      _updateStatus('☁️ Mengupload ke Cloudinary...');
 
-      final storage = FirebaseStorage.instance;
-      
-      // Nama file unik dengan struktur folder yang rapi
-      final dateStr = DateFormat('yyyy-MM-dd').format(DateTime.now());
-      final fileName = 'absensi/${widget.overtimeItem.id}/$dateStr/$uniqueId.jpg';
-      
-      final ref = storage.ref().child(fileName);
-
-      // Upload dengan retry
       String? fotoUrl;
       int uploadAttempt = 0;
-      
+
       while (uploadAttempt <= _maxRetries && fotoUrl == null) {
         try {
           uploadAttempt++;
-          
-          final uploadTask = ref.putFile(
-            tempFile,
-            SettableMetadata(
-              contentType: 'image/jpeg',
-              customMetadata: {
-              'userId': currentUser.uid,
-              'overtimeId': widget.overtimeItem.id ?? 'unknown',
-              'timestamp': timestamp.toString(),
-              'latitude': _currentPosition!.latitude.toString(),
-              'longitude': _currentPosition!.longitude.toString(),
-              },
-            ),
-          );
+          final result = await _cloudinaryService
+              .uploadFoto(
+                photoFile: tempFile,
+                fileName: uniqueId,
+                lemburId: widget.overtimeItem.id,
+              )
+              .timeout(const Duration(seconds: 60));
 
-          // Track progress
-          uploadTask.snapshotEvents.listen((snapshot) {
-            final progress = snapshot.bytesTransferred / snapshot.totalBytes;
-            if (mounted && progress < 1.0) {
-              setState(() {
-                _statusMessage = '☁️ Mengupload... ${(progress * 100).toStringAsFixed(0)}%';
-              });
-            }
-          });
-
-          await uploadTask.timeout(const Duration(seconds: 45));
-          
-          fotoUrl = await ref.getDownloadURL();
-          
-          debugPrint('Absensi: Upload success on attempt $uploadAttempt');
-          
+          if (result['success'] == true) {
+            fotoUrl = result['url'] as String;
+            debugPrint('Cloudinary upload success: $fotoUrl');
+          } else {
+            throw Exception(result['message'] ?? 'Upload gagal');
+          }
         } on TimeoutException {
           debugPrint('Absensi: Upload timeout on attempt $uploadAttempt');
-          
           if (uploadAttempt > _maxRetries) {
             throw TimeoutException(
               'Upload gagal setelah $_maxRetries kali percobaan',
             );
           }
-          
           _updateStatus('⏳ Upload lambat, mencoba lagi...');
           await Future.delayed(Duration(seconds: uploadAttempt * 2));
-          
-        } on FirebaseException catch (e) {
-          debugPrint('Absensi: Firebase error on attempt $uploadAttempt: ${e.code}');
-          
-          if (e.code == 'quota-exceeded' || e.code == 'unauthenticated') {
-            throw e; // Jangan retry untuk error permanen
-          }
-          
-          if (uploadAttempt > _maxRetries) throw e;
-          
-          _updateStatus('⏳ Error server, mencoba lagi...');
+        } catch (e) {
+          debugPrint('Absensi: Upload error on attempt $uploadAttempt: $e');
+          if (uploadAttempt > _maxRetries) rethrow;
+          _updateStatus('⏳ Error, mencoba lagi...');
           await Future.delayed(Duration(seconds: uploadAttempt * 2));
         }
       }
 
       if (fotoUrl == null) {
-        throw Exception('Gagal upload foto');
+        throw Exception('Gagal upload foto ke Cloudinary');
       }
 
-      debugPrint('Absensi: Foto URL: $fotoUrl');
-
       if (!mounted) return;
 
-      // -----------------------------------------------------------------------
+      // =====================================================================
       // STEP 4: SAVE TO FIRESTORE
-      // -----------------------------------------------------------------------
-      
+      // =====================================================================
       _updateStatus('📝 Menyimpan data absensi...');
 
-      final success = await _historyService
-          .updateAbsensiStatus(
-            lemburId: widget.overtimeItem.id,
-            absensiStatus: 'selesai',
-            fotoUrl: fotoUrl,
-            absensiOleh: currentUser.uid,
-            absensiNama: currentUser.displayName ?? 'Mitra',
-            absensiWaktu: DateTime.now(),
-          )
-          .timeout(const Duration(seconds: 15));
+      final result = await _absensiService.submitAbsensi(
+        docId: widget.overtimeItem.id,
+        fotoUrl: fotoUrl,
+        userId: currentUser.uid,
+        userName: currentUser.displayName ?? 'Mitra',
+      );
 
       if (!mounted) return;
 
-      if (success == true) {
+      if (result['success'] == true) {
         debugPrint('Absensi: Absensi saved successfully!');
-        
-        // Tutup dialog
         Navigator.pop(context, true);
-
-        // Tampilkan sukses setelah animasi
         Future.delayed(const Duration(milliseconds: 400), () {
           if (mounted) {
-            _showSnackBar(
-              '✅ Absensi berhasil disimpan!',
-              Colors.green,
-            );
+            _showSnackBar('✅ Absensi berhasil disimpan!', Colors.green);
           }
         });
       } else {
-        // Hapus foto dari storage jika save gagal
-        try {
-          await ref.delete();
-        } catch (_) {}
-        
-        throw Exception('Gagal menyimpan data absensi ke database');
+        // Rollback: hapus foto dari Cloudinary jika save gagal
+        if (result['publicId'] != null) {
+          await _cloudinaryService.deleteFoto(result['publicId']);
+        }
+        throw Exception(result['message'] ?? 'Gagal menyimpan data absensi');
       }
-
     } on TimeoutException catch (e) {
       debugPrint('Absensi: Submit timeout: $e');
-      
       if (!mounted) return;
-      
       setState(() => _isSubmitting = false);
-      
       _updateStatus(
         'Koneksi timeout',
         errorDetail: 'Periksa koneksi internet Anda dan coba lagi',
       );
-      
-      _showSnackBar(
-        'Upload timeout. Periksa koneksi internet Anda.',
-        Colors.red,
-      );
-      
-    } on FirebaseException catch (e) {
-      debugPrint('Absensi: Firebase error: ${e.code} - ${e.message}');
-      
+      _showSnackBar('Upload timeout. Periksa koneksi internet Anda.', Colors.red);
+    } catch (e) {
+      debugPrint('Absensi: Submit error: $e');
       if (!mounted) return;
-      
       setState(() => _isSubmitting = false);
-      
-      String message;
-      switch (e.code) {
-        case 'quota-exceeded':
-          message = 'Kuota storage penuh. Hubungi admin.';
-          break;
-        case 'unauthenticated':
-          message = 'Sesi login berakhir. Silakan login ulang.';
-          break;
-        case 'unauthorized':
-          message = 'Anda tidak memiliki akses untuk upload.';
-          break;
-        default:
-          message = 'Error server. Silakan coba lagi.';
-      }
-      
-      _updateStatus('Upload gagal', errorDetail: message);
-      _showSnackBar(message, Colors.red);
-      
-    } catch (e, stackTrace) {
-      debugPrint('=' * 80);
-      debugPrint('Absensi: Submit error');
-      debugPrint('Error: $e');
-      debugPrint('Stack: $stackTrace');
-      debugPrint('=' * 80);
-      
-      if (!mounted) return;
-      
-      setState(() => _isSubmitting = false);
-      
       _updateStatus(
         'Gagal submit absensi',
         errorDetail: e.toString().replaceAll('Exception: ', ''),
       );
-      
-      _showSnackBar(
-        'Terjadi kesalahan. Silakan coba lagi.',
-        Colors.red,
-      );
-      
+      _showSnackBar('Terjadi kesalahan. Silakan coba lagi.', Colors.red);
     } finally {
-      // -----------------------------------------------------------------------
-      // CLEANUP TEMP FILE
-      // -----------------------------------------------------------------------
-      
+      // Cleanup temp file
       try {
         if (tempFile != null && await tempFile.exists()) {
           await tempFile.delete();
@@ -886,23 +703,82 @@ class _AbsensiDialogState extends State<AbsensiDialog> {
   }
 
   // ===========================================================================
+  // SUBMIT KONFIRMASI KETERLAMBATAN (NEW)
+  // ===========================================================================
+
+  Future<void> _submitKonfirmasi() async {
+    if (_melakukanLembur == null) {
+      _showSnackBar('Pilih apakah Anda melakukan lembur atau tidak', Colors.orange);
+      return;
+    }
+    if (_alasanController.text.trim().isEmpty) {
+      _showSnackBar('Alasan wajib diisi', Colors.orange);
+      return;
+    }
+    if (_melakukanLembur == true && _buktiFotoTerlambat == null) {
+      _showSnackBar('Upload foto bukti wajib jika menyatakan tetap lembur', Colors.orange);
+      return;
+    }
+
+    setState(() => _isSubmitting = true);
+    try {
+      String? fotoUrl;
+      if (_buktiFotoTerlambat != null) {
+        final uploadResult = await _cloudinaryService.uploadFoto(
+          photoFile: _buktiFotoTerlambat!,
+          fileName: 'bukti_${DateTime.now().millisecondsSinceEpoch}',
+          lemburId: widget.overtimeItem.id,
+        );
+        if (uploadResult['success'] == true) {
+          fotoUrl = uploadResult['url'] as String;
+        }
+      }
+
+      final currentUser = FirebaseAuth.instance.currentUser;
+      final result = await _absensiService.konfirmasiKeterlambatan(
+        lemburId: widget.overtimeItem.id,
+        userId: currentUser?.uid ?? '',
+        userName: currentUser?.displayName ?? 'Mitra',
+        melakukanLembur: _melakukanLembur!,
+        alasan: _alasanController.text.trim(),
+        buktiFotoUrl: fotoUrl,
+      );
+
+      if (!mounted) return;
+
+      if (result['success'] == true) {
+        Navigator.pop(context, true);
+        Future.delayed(const Duration(milliseconds: 400), () {
+          if (mounted) _showSnackBar('✅ ${result['message']}', Colors.green);
+        });
+      } else {
+        _showSnackBar(result['message'] ?? 'Gagal', Colors.red);
+      }
+    } catch (e) {
+      _showSnackBar('Gagal: $e', Colors.red);
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
+    }
+  }
+
+  // ===========================================================================
   // DIALOG HELPERS
   // ===========================================================================
 
   void _showRetryDialog(String title, String message) {
     if (!mounted) return;
-    
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Text(title, style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
         content: Text(message, style: GoogleFonts.poppins(fontSize: 13)),
         actions: [
           TextButton(
             onPressed: () {
               Navigator.pop(ctx);
-              Navigator.pop(context); // Tutup absensi dialog
+              Navigator.pop(context);
             },
             child: Text('Batal', style: GoogleFonts.poppins()),
           ),
@@ -911,7 +787,11 @@ class _AbsensiDialogState extends State<AbsensiDialog> {
               Navigator.pop(ctx);
               _startLocationVerification();
             },
-            child: Text('Coba Lagi', style: GoogleFonts.poppins()),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF1976D2),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            child: Text('Coba Lagi', style: GoogleFonts.poppins(color: Colors.white)),
           ),
         ],
       ),
@@ -920,11 +800,12 @@ class _AbsensiDialogState extends State<AbsensiDialog> {
 
   void _showOpenSettingsDialog() {
     if (!mounted) return;
-    
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text('Izin Lokasi Diperlukan', style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text('Izin Lokasi Diperlukan',
+            style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
         content: Text(
           'Buka Pengaturan > Aplikasi > Pilih Aplikasi > Izin > Lokasi > Izinkan',
           style: GoogleFonts.poppins(fontSize: 13),
@@ -946,7 +827,11 @@ class _AbsensiDialogState extends State<AbsensiDialog> {
                 debugPrint('Absensi: Cannot open settings: $e');
               }
             },
-            child: Text('Buka Pengaturan', style: GoogleFonts.poppins()),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF1976D2),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            child: Text('Buka Pengaturan', style: GoogleFonts.poppins(color: Colors.white)),
           ),
         ],
       ),
@@ -962,40 +847,48 @@ class _AbsensiDialogState extends State<AbsensiDialog> {
     final mediaQuery = MediaQuery.of(context);
     final bottomPadding = mediaQuery.padding.bottom;
 
+   
+    // LOADING STATE (NEW)
+   
+    if (_isCheckingStatus) {
+      return SafeArea(
+        child: Container(
+          height: MediaQuery.of(context).size.height * 0.92,
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+          ),
+          child: const Center(child: CircularProgressIndicator()),
+        ),
+      );
+    }
+
     return SafeArea(
       child: Container(
         height: mediaQuery.size.height * 0.92,
         decoration: const BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.vertical(
-            top: Radius.circular(28),
-          ),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
         ),
         child: IgnorePointer(
           ignoring: _isSubmitting,
           child: Column(
             children: [
-              // ===============================================================
-              // HANDLE BAR
-              // ===============================================================
-              
+              // Handle bar
               const SizedBox(height: 12),
-              
-              Container(
-                width: 50,
-                height: 5,
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade300,
-                  borderRadius: BorderRadius.circular(20),
+              Center(
+                child: Container(
+                  width: 50,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
                 ),
               ),
-              
               const SizedBox(height: 20),
-              
-              // ===============================================================
-              // HEADER
-              // ===============================================================
-              
+
+              // Header
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: Row(
@@ -1025,55 +918,39 @@ class _AbsensiDialogState extends State<AbsensiDialog> {
                   ],
                 ),
               ),
-              
-              // ===============================================================
-              // CONTENT
-              // ===============================================================
-              
+
+              // Content
               Expanded(
                 child: SingleChildScrollView(
                   physics: const BouncingScrollPhysics(),
                   padding: EdgeInsets.fromLTRB(20, 8, 20, bottomPadding + 20),
                   child: Column(
                     children: [
-                      // -------------------------------------------------------
-                      // STEP INDICATOR
-                      // -------------------------------------------------------
+                     
+                      // INFO CARD + BANNER (NEW)
+                     
+                      _buildInfoCard(),
+                      if (_canConfirm && !_showKonfirmasiForm) _buildLateBanner(),
                       
-                      _buildStepIndicator(),
-                      
-                      const SizedBox(height: 24),
-                      
-                      // -------------------------------------------------------
-                      // STATUS CARD
-                      // -------------------------------------------------------
-                      
-                      _buildStatusCard(),
-                      
-                      const SizedBox(height: 20),
-                      
-                      // -------------------------------------------------------
-                      // PHOTO PREVIEW
-                      // -------------------------------------------------------
-                      
-                      if (_capturedImage != null)
-                        _buildPhotoPreview(),
-                      
-                      if (_capturedImage != null)
+                     
+                      // KONFIRMASI FORM ATAU ABSENSI NORMAL
+                     
+                      if (_showKonfirmasiForm)
+                        _buildKonfirmasiForm()
+                      else ...[
+                        _buildStepIndicator(),
+                        const SizedBox(height: 24),
+                        _buildStatusCard(),
                         const SizedBox(height: 20),
-                      
-                      // -------------------------------------------------------
-                      // LOADING / BUTTONS
-                      // -------------------------------------------------------
-                      
-                      if (_isLoadingLocation)
-                        const Padding(
-                          padding: EdgeInsets.all(24),
-                          child: CircularProgressIndicator(),
-                        ),
-                      
-                      if (!_isLoadingLocation)
-                        _buildActionButtons(),
+                        if (_capturedImage != null) _buildPhotoPreview(),
+                        if (_capturedImage != null) const SizedBox(height: 20),
+                        if (_isLoadingLocation)
+                          const Padding(
+                            padding: EdgeInsets.all(24),
+                            child: CircularProgressIndicator(),
+                          ),
+                        if (!_isLoadingLocation) _buildActionButtons(),
+                      ],
                       
                       const SizedBox(height: 30),
                     ],
@@ -1083,6 +960,160 @@ class _AbsensiDialogState extends State<AbsensiDialog> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  // ===========================================================================
+  // INFO LEMBUR CARD (NEW)
+  // ===========================================================================
+
+  Widget _buildInfoCard() {
+    final l = widget.overtimeItem;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1A237E).withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFF1A237E).withValues(alpha: 0.1)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            const Icon(Icons.info_outline, size: 18, color: Color(0xFF1A237E)),
+            const SizedBox(width: 8),
+            Text('Detail Lembur Hari Ini', style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 13, color: const Color(0xFF1A237E))),
+          ]),
+          const SizedBox(height: 10),
+          _infoRow(Icons.calendar_today, DateFormat('EEEE, dd MMM yyyy', 'id_ID').format(l.tanggal)),
+          _infoRow(Icons.access_time, '${l.jamMulai} - ${l.jamSelesai} (${l.totalJam.toStringAsFixed(1)} jam)'),
+          _infoRow(Icons.location_on, l.lokasi['alamat'] ?? l.lokasi['nama_lokasi'] ?? 'Kantor'),
+        ],
+      ),
+    );
+  }
+
+  // ===========================================================================
+  // LATE BANNER (NEW)
+  // ===========================================================================
+
+  Widget _buildLateBanner() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.orange.shade50,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.orange.shade200),
+      ),
+      child: Column(
+        children: [
+          Row(children: [
+            const Icon(Icons.warning_amber, color: Colors.orange, size: 24),
+            const SizedBox(width: 10),
+            Expanded(child: Text('Anda belum melakukan absensi!', style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 13, color: Colors.orange.shade800))),
+          ]),
+          const SizedBox(height: 4),
+          Text('Sudah melewati batas waktu absensi normal.', style: GoogleFonts.poppins(fontSize: 11, color: Colors.orange.shade600)),
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: () => setState(() => _showKonfirmasiForm = true),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.orange, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+              child: const Text('Konfirmasi Keterlambatan', style: TextStyle(color: Colors.white)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ===========================================================================
+  // KONFIRMASI FORM (NEW)
+  // ===========================================================================
+
+  Widget _buildKonfirmasiForm() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.grey.shade200)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Konfirmasi Keterlambatan', style: GoogleFonts.poppins(fontWeight: FontWeight.w700, fontSize: 16)),
+          const SizedBox(height: 4),
+          Text('Apakah Anda melakukan lembur?', style: GoogleFonts.poppins(fontSize: 13, color: Colors.grey.shade600)),
+          const SizedBox(height: 14),
+          Row(children: [
+            Expanded(child: _optionCard('✅ Ya, saya lembur', Icons.check_circle, Colors.green, _melakukanLembur == true, () => setState(() => _melakukanLembur = true))),
+            const SizedBox(width: 10),
+            Expanded(child: _optionCard('❌ Tidak lembur', Icons.cancel, Colors.red, _melakukanLembur == false, () => setState(() => _melakukanLembur = false))),
+          ]),
+          const SizedBox(height: 14),
+          TextField(
+            controller: _alasanController,
+            maxLines: 2,
+            decoration: InputDecoration(
+              hintText: 'Tulis alasan keterlambatan...',
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+              contentPadding: const EdgeInsets.all(12),
+            ),
+          ),
+          if (_melakukanLembur == true) ...[
+            const SizedBox(height: 12),
+            if (_buktiFotoTerlambat != null)
+              ClipRRect(borderRadius: BorderRadius.circular(10), child: Image.file(_buktiFotoTerlambat!, height: 120, width: double.infinity, fit: BoxFit.cover)),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: _pickBuktiFoto,
+              icon: const Icon(Icons.camera_alt, size: 18),
+              label: Text(_buktiFotoTerlambat != null ? 'Ganti Foto' : 'Ambil Foto Bukti'),
+              style: OutlinedButton.styleFrom(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+            ),
+          ],
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: _isSubmitting ? null : _submitKonfirmasi,
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1A237E), padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+              child: Text(_isSubmitting ? 'Mengirim...' : 'Kirim Konfirmasi', style: GoogleFonts.poppins(fontWeight: FontWeight.w600, color: Colors.white)),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Center(
+            child: TextButton(
+              onPressed: () => setState(() {
+                _showKonfirmasiForm = false;
+                _melakukanLembur = null;
+                _alasanController.clear();
+                _buktiFotoTerlambat = null;
+              }),
+              child: const Text('← Kembali ke absensi normal'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _optionCard(String title, IconData icon, Color color, bool selected, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: selected ? color.withValues(alpha: 0.1) : Colors.grey.shade50,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: selected ? color : Colors.grey.shade300, width: selected ? 2 : 1),
+        ),
+        child: Column(children: [
+          Icon(icon, color: selected ? color : Colors.grey, size: 28),
+          const SizedBox(height: 4),
+          Text(title, textAlign: TextAlign.center, style: GoogleFonts.poppins(fontSize: 10, fontWeight: FontWeight.w600, color: selected ? color : Colors.grey.shade600)),
+        ]),
       ),
     );
   }
@@ -1139,12 +1170,10 @@ class _AbsensiDialogState extends State<AbsensiDialog> {
   }) {
     Color bgColor;
     Color textColor;
-    IconData? icon;
 
     if (isComplete) {
       bgColor = Colors.green;
       textColor = Colors.green;
-      icon = Icons.check;
     } else if (isActive) {
       bgColor = const Color(0xFF1976D2);
       textColor = const Color(0xFF1976D2);
@@ -1221,7 +1250,6 @@ class _AbsensiDialogState extends State<AbsensiDialog> {
       ),
       child: Column(
         children: [
-          // Status icon
           _isLoadingLocation
               ? const SizedBox(
                   width: 42,
@@ -1229,10 +1257,7 @@ class _AbsensiDialogState extends State<AbsensiDialog> {
                   child: CircularProgressIndicator(strokeWidth: 3),
                 )
               : Icon(statusIcon, size: 42, color: iconColor),
-
           const SizedBox(height: 14),
-
-          // Status message
           Text(
             _statusMessage,
             textAlign: TextAlign.center,
@@ -1242,8 +1267,6 @@ class _AbsensiDialogState extends State<AbsensiDialog> {
               color: Colors.black87,
             ),
           ),
-
-          // Error detail
           if (_errorDetail != null && _errorDetail!.isNotEmpty) ...[
             const SizedBox(height: 8),
             Container(
@@ -1262,34 +1285,24 @@ class _AbsensiDialogState extends State<AbsensiDialog> {
               ),
             ),
           ],
-
           const SizedBox(height: 14),
-
-          // Location details
-          if (_currentPosition != null) ...[
+          if (_currentPosition != null)
             _infoRow(
               Icons.pin_drop,
               '${_currentPosition!.latitude.toStringAsFixed(6)}, ${_currentPosition!.longitude.toStringAsFixed(6)}',
             ),
-          ],
-
           if (_distanceInMeters != null)
             _infoRow(
               Icons.straighten,
               'Jarak: ${_distanceInMeters!.toStringAsFixed(0)} meter dari lokasi',
             ),
-
           if (_maxRadius != null)
             _infoRow(
               Icons.circle_outlined,
               'Radius maksimal: ${_maxRadius!.toStringAsFixed(0)} meter',
             ),
-
           if (_currentAddress != null && _currentAddress!.isNotEmpty)
-            _infoRow(
-              Icons.location_city,
-              _currentAddress!,
-            ),
+            _infoRow(Icons.location_city, _currentAddress!),
         ],
       ),
     );
@@ -1309,42 +1322,29 @@ class _AbsensiDialogState extends State<AbsensiDialog> {
         ),
         child: Stack(
           children: [
-            // Preview image
             Image.file(
               _previewFile!,
               width: double.infinity,
               height: 260,
               fit: BoxFit.cover,
-              errorBuilder: (_, error, __) {
-                debugPrint('Absensi: Image preview error: $error');
-                return Container(
-                  height: 260,
-                  color: Colors.grey.shade100,
-                  child: Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(
-                          Icons.broken_image,
-                          size: 50,
-                          color: Colors.grey,
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Gagal memuat foto',
-                          style: GoogleFonts.poppins(
-                            fontSize: 12,
-                            color: Colors.grey,
-                          ),
-                        ),
-                      ],
-                    ),
+              errorBuilder: (_, __, ___) => Container(
+                height: 260,
+                color: Colors.grey.shade100,
+                child: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.broken_image, size: 50, color: Colors.grey),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Gagal memuat foto',
+                        style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey),
+                      ),
+                    ],
                   ),
-                );
-              },
+                ),
+              ),
             ),
-            
-            // Retake button overlay
             Positioned(
               top: 8,
               right: 8,
@@ -1356,11 +1356,7 @@ class _AbsensiDialogState extends State<AbsensiDialog> {
                     color: Colors.black.withValues(alpha: 0.6),
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(
-                    Icons.refresh,
-                    color: Colors.white,
-                    size: 20,
-                  ),
+                  child: const Icon(Icons.refresh, color: Colors.white, size: 20),
                 ),
               ),
             ),
@@ -1380,9 +1376,7 @@ class _AbsensiDialogState extends State<AbsensiDialog> {
       return Column(
         children: [
           _buildButton(
-            text: _hasAttemptedRetry
-                ? 'Coba Verifikasi Lagi'
-                : 'Verifikasi Lokasi',
+            text: _hasAttemptedRetry ? 'Coba Verifikasi Lagi' : 'Verifikasi Lokasi',
             icon: Icons.refresh,
             color: Colors.orange,
             loading: _isLoadingLocation,
@@ -1391,17 +1385,10 @@ class _AbsensiDialogState extends State<AbsensiDialog> {
               _startLocationVerification();
             },
           ),
-          
           const SizedBox(height: 12),
-          
           TextButton(
-            onPressed: _isLoadingLocation
-                ? null
-                : () => Navigator.pop(context, false),
-            child: Text(
-              'Batal',
-              style: GoogleFonts.poppins(color: Colors.grey),
-            ),
+            onPressed: _isLoadingLocation ? null : () => Navigator.pop(context, false),
+            child: Text('Batal', style: GoogleFonts.poppins(color: Colors.grey)),
           ),
         ],
       );
@@ -1428,10 +1415,8 @@ class _AbsensiDialogState extends State<AbsensiDialog> {
           loading: _isSubmitting,
           onPressed: _submitAbsensi,
         ),
-        
         if (!_isSubmitting) ...[
           const SizedBox(height: 12),
-          
           Row(
             children: [
               Expanded(
@@ -1470,18 +1455,12 @@ class _AbsensiDialogState extends State<AbsensiDialog> {
             ? const SizedBox(
                 width: 18,
                 height: 18,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: Colors.white,
-                ),
+                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
               )
             : Icon(icon, size: 20),
         label: Text(
           loading ? 'Memproses...' : text,
-          style: GoogleFonts.poppins(
-            fontWeight: FontWeight.w600,
-            fontSize: 14,
-          ),
+          style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 14),
         ),
         style: ElevatedButton.styleFrom(
           backgroundColor: color,
@@ -1489,9 +1468,7 @@ class _AbsensiDialogState extends State<AbsensiDialog> {
           disabledBackgroundColor: Colors.grey.shade300,
           disabledForegroundColor: Colors.grey.shade500,
           elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         ),
       ),
     );

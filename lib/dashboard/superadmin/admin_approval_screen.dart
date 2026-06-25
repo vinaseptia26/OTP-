@@ -1,4 +1,5 @@
 // lib/features/admin/approval/admin_approval_screen.dart
+
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -6,22 +7,23 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:open_file/open_file.dart';
+import 'package:go_router/go_router.dart';
 import '/core/services/overtime_approval_service.dart';
 import '/core/services/overtime_rate_service.dart';
+import '/widgets/approval/approval_detail_bottom_sheet.dart';
+import '/widgets/approval/approval_dialogs.dart';
+import '/widgets/approval/approval_list_builder.dart';
+import '/widgets/bottom_nav/superadmin_bottom_nav.dart';
 
-import '/widgets/approval/manager/approval_detail_bottom_sheet.dart';
-import '/widgets/approval/manager/approval_dialogs.dart';
-import '/widgets/approval/manager/approval_list_builder.dart';
-
-class AdminApprovalScreen extends StatefulWidget {
+class ApprovalLemburScreen extends StatefulWidget {
   final VoidCallback? onApprovalComplete;
-  const AdminApprovalScreen({super.key, this.onApprovalComplete});
+  const ApprovalLemburScreen({super.key, this.onApprovalComplete});
 
   @override
-  State<AdminApprovalScreen> createState() => _AdminApprovalScreenState();
+  State<ApprovalLemburScreen> createState() => _ApprovalLemburScreenState();
 }
 
-class _AdminApprovalScreenState extends State<AdminApprovalScreen>
+class _ApprovalLemburScreenState extends State<ApprovalLemburScreen>
     with TickerProviderStateMixin {
 
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -37,6 +39,7 @@ class _AdminApprovalScreenState extends State<AdminApprovalScreen>
   String? _userId;
   String? _userName;
   String? _userEmail;
+  String? _userRole;
 
   String _searchQuery = '';
   Timer? _searchDebounce;
@@ -77,6 +80,8 @@ class _AdminApprovalScreenState extends State<AdminApprovalScreen>
     super.dispose();
   }
 
+  int _getCurrentNavIndex() => -1;
+
   Future<void> _initializeData() async {
     if (!mounted) return;
     setState(() => _isLoading = true);
@@ -84,7 +89,7 @@ class _AdminApprovalScreenState extends State<AdminApprovalScreen>
       await _loadUserData();
       await _loadStatistics();
     } catch (e) {
-      debugPrint('❌ Error initializing: $e');
+      debugPrint('Error initializing: $e');
       if (mounted) _showSnackbar('Gagal memuat data', isError: true);
     }
     if (mounted) setState(() => _isLoading = false);
@@ -96,27 +101,25 @@ class _AdminApprovalScreenState extends State<AdminApprovalScreen>
     _userId = user.uid;
     _userEmail = user.email;
     try {
-      final doc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .get();
+      final doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
       if (doc.exists && doc.data() != null) {
         final data = doc.data()!;
         _userName = data['nama_lengkap'] ?? user.email ?? 'Admin';
+        _userRole = data['role']?.toString() ?? 'superadmin';
       } else {
         _userName = user.email ?? 'Admin';
+        _userRole = 'superadmin';
       }
     } catch (e) {
-      debugPrint('❌ Error loading user: $e');
+      debugPrint('Error loading user: $e');
       _userName = user.email ?? 'Admin';
+      _userRole = 'superadmin';
     }
   }
 
   Future<void> _loadStatistics() async {
     try {
-      final stats = await _approvalService.getStatisticsForSuperadmin(
-        fungsiFilter: _fungsiFilter,
-      );
+      final stats = await _approvalService.getStatisticsForSuperadmin(fungsiFilter: _fungsiFilter);
       if (mounted) {
         setState(() {
           _totalPending = stats['totalPending'] ?? 0;
@@ -128,7 +131,7 @@ class _AdminApprovalScreenState extends State<AdminApprovalScreen>
         });
       }
     } catch (e) {
-      debugPrint('❌ Error loading statistics: $e');
+      debugPrint('Error loading statistics: $e');
     }
   }
 
@@ -137,6 +140,9 @@ class _AdminApprovalScreenState extends State<AdminApprovalScreen>
     return Scaffold(
       backgroundColor: _isDarkMode ? const Color(0xFF1A1A2E) : const Color(0xFFF8FAFF),
       appBar: _buildAppBar(),
+      bottomNavigationBar: _userRole != null
+          ? SuperAdminBottomNav(currentIndex: _getCurrentNavIndex())
+          : null,
       body: _isLoading
           ? const Center(child: CircularProgressIndicator(color: Color(0xFF1E3C72)))
           : Column(
@@ -189,9 +195,13 @@ class _AdminApprovalScreenState extends State<AdminApprovalScreen>
 
   PreferredSizeWidget _buildAppBar() {
     return AppBar(
-      title: Text('Approval Lembur Admin', style: GoogleFonts.poppins(fontWeight: FontWeight.w700, color: Colors.white, fontSize: 18)),
+      title: Text('Persetujuan Lembur', style: GoogleFonts.poppins(fontWeight: FontWeight.w700, color: Colors.white, fontSize: 18)),
       backgroundColor: _isBulkMode ? const Color(0xFF2D5AA0) : const Color(0xFF1E3C72),
       elevation: 0,
+      leading: IconButton(
+        icon: const Icon(Icons.arrow_back_ios_new, size: 20, color: Colors.white),
+        onPressed: () => context.pop(),
+      ),
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(bottom: Radius.circular(20))),
       actions: [
         if (_isBulkMode)
@@ -341,10 +351,7 @@ class _AdminApprovalScreenState extends State<AdminApprovalScreen>
       children: [
         Icon(icon, color: color, size: 24),
         const SizedBox(height: 4),
-        Text(
-          isRupiah ? value.toString() : value.toString(),
-          style: GoogleFonts.poppins(color: color, fontWeight: FontWeight.bold, fontSize: 20),
-        ),
+        Text(value.toString(), style: GoogleFonts.poppins(color: color, fontWeight: FontWeight.bold, fontSize: 20)),
         Text(label, style: GoogleFonts.poppins(color: Colors.white70, fontSize: 10)),
       ],
     );
@@ -382,10 +389,7 @@ class _AdminApprovalScreenState extends State<AdminApprovalScreen>
 
   Widget _buildPendingTab() {
     return StreamBuilder<List<Map<String, dynamic>>>(
-      stream: _approvalService.getApprovalListForSuperadmin(
-        status: 'pending',
-        fungsiFilter: _fungsiFilter,
-      ),
+      stream: _approvalService.getApprovalListForSuperadmin(status: 'pending', fungsiFilter: _fungsiFilter),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
@@ -398,9 +402,7 @@ class _AdminApprovalScreenState extends State<AdminApprovalScreen>
           return nama.contains(_searchQuery) || groupId.contains(_searchQuery);
         }).toList();
 
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          _allPendingData = filteredDocs;
-        });
+        WidgetsBinding.instance.addPostFrameCallback((_) => _allPendingData = filteredDocs);
 
         if (filteredDocs.isEmpty) {
           return Center(
@@ -468,9 +470,7 @@ class _AdminApprovalScreenState extends State<AdminApprovalScreen>
               : isOverride
                   ? Border.all(color: Colors.orange, width: 1.5)
                   : null,
-          boxShadow: [
-            BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 2)),
-          ],
+          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 2))],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -527,10 +527,7 @@ class _AdminApprovalScreenState extends State<AdminApprovalScreen>
                           const SizedBox(width: 12),
                           Icon(Icons.access_time, size: 12, color: Colors.grey[500]),
                           const SizedBox(width: 4),
-                          Text(
-                            '${data['jam_mulai']} - ${data['jam_selesai']}',
-                            style: GoogleFonts.poppins(fontSize: 11, color: Colors.grey[600]),
-                          ),
+                          Text('${data['jam_mulai']} - ${data['jam_selesai']}', style: GoogleFonts.poppins(fontSize: 11, color: Colors.grey[600])),
                         ],
                       ),
                       const SizedBox(height: 4),
@@ -556,12 +553,7 @@ class _AdminApprovalScreenState extends State<AdminApprovalScreen>
                                 Icon(Icons.people, size: 12, color: Colors.grey[500]),
                                 const SizedBox(width: 4),
                                 Expanded(
-                                  child: Text(
-                                    '$displayNames$more',
-                                    style: GoogleFonts.poppins(fontSize: 10, color: Colors.grey[600]),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
+                                  child: Text('$displayNames$more', style: GoogleFonts.poppins(fontSize: 10, color: Colors.grey[600]), maxLines: 1, overflow: TextOverflow.ellipsis),
                                 ),
                               ],
                             ),
@@ -589,7 +581,6 @@ class _AdminApprovalScreenState extends State<AdminApprovalScreen>
   Future<void> _showDetail(String groupId) async {
     final detail = await _approvalService.getDetailPengajuan(groupId);
     if (detail == null || !mounted) return;
-
     final mitraList = (detail['mitra_list'] as List?)?.cast<Map<String, dynamic>>() ?? [];
     final hasSpkl = detail['spkl_pdf_path'] != null;
 
@@ -607,12 +598,7 @@ class _AdminApprovalScreenState extends State<AdminApprovalScreen>
         isSuperadmin: true,
         onApprove: () => _showApproveDialog(groupId, detail, mitraList),
         onReject: () => _showRejectDialog(groupId),
-        onPreviewSpkl: hasSpkl
-            ? () async {
-                Navigator.pop(context);
-                await OpenFile.open(detail['spkl_pdf_path']);
-              }
-            : null,
+        onPreviewSpkl: hasSpkl ? () async { Navigator.pop(context); await OpenFile.open(detail['spkl_pdf_path']); } : null,
       ),
     );
   }
@@ -623,10 +609,7 @@ class _AdminApprovalScreenState extends State<AdminApprovalScreen>
       builder: (context) => ApprovalApproveDialog(
         data: data,
         mitraList: mitraList,
-        onConfirm: (notes) async {
-          Navigator.pop(context);
-          await _processApproval(groupId, true, notes);
-        },
+        onConfirm: (notes) async { Navigator.pop(context); await _processApproval(groupId, true, notes); },
       ),
     );
   }
@@ -636,10 +619,7 @@ class _AdminApprovalScreenState extends State<AdminApprovalScreen>
       context: context,
       builder: (context) => ApprovalRejectDialog(
         onConfirm: (notes) async {
-          if (notes.isEmpty) {
-            _showSnackbar('Alasan penolakan wajib diisi', isError: true);
-            return;
-          }
+          if (notes.isEmpty) { _showSnackbar('Alasan penolakan wajib diisi', isError: true); return; }
           Navigator.pop(context);
           await _processApproval(groupId, false, notes);
         },
@@ -650,27 +630,17 @@ class _AdminApprovalScreenState extends State<AdminApprovalScreen>
   Future<void> _processApproval(String groupId, bool isApprove, String notes) async {
     try {
       final result = await _approvalService.processApproval(
-        groupId: groupId,
-        isApprove: isApprove,
-        notes: notes,
-        userRole: 'superadmin',
-        approverName: _userName ?? 'Admin',
-        approverEmail: _userEmail,
-        approverId: _userId,
+        groupId: groupId, isApprove: isApprove, notes: notes,
+        userRole: 'superadmin', approverName: _userName ?? 'Admin',
+        approverEmail: _userEmail, approverId: _userId,
       );
-
       if (mounted) {
         Navigator.pop(context);
         _showSnackbar(result.message, isError: !result.success);
-        if (result.success && result.spklNomor != null) {
-          _showSpklSuccessDialog(result);
-        }
+        if (result.success && result.spklNomor != null) _showSpklSuccessDialog(result);
         _loadStatistics();
         widget.onApprovalComplete?.call();
-        setState(() {
-          _selectedIds.remove(groupId);
-          _isSelectAll = false;
-        });
+        setState(() { _selectedIds.remove(groupId); _isSelectAll = false; });
       }
     } catch (e) {
       if (mounted) _showSnackbar('Gagal memproses', isError: true);
@@ -705,10 +675,7 @@ class _AdminApprovalScreenState extends State<AdminApprovalScreen>
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Tutup')),
           if (result.spklPdfPath != null)
             ElevatedButton.icon(
-              onPressed: () async {
-                Navigator.pop(context);
-                await OpenFile.open(result.spklPdfPath!);
-              },
+              onPressed: () async { Navigator.pop(context); await OpenFile.open(result.spklPdfPath!); },
               icon: const Icon(Icons.preview, size: 18),
               label: const Text('Lihat SPKL'),
               style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
@@ -720,23 +687,14 @@ class _AdminApprovalScreenState extends State<AdminApprovalScreen>
 
   void _onSelectionChanged(String groupId, bool isSelected) {
     setState(() {
-      if (isSelected) {
-        _selectedIds.add(groupId);
-      } else {
-        _selectedIds.remove(groupId);
-        _isSelectAll = false;
-      }
+      if (isSelected) { _selectedIds.add(groupId); } else { _selectedIds.remove(groupId); _isSelectAll = false; }
     });
   }
 
   void _onSelectAllChanged(List<String> allIds, bool isSelectAll) {
     setState(() {
       _isSelectAll = isSelectAll;
-      if (isSelectAll) {
-        _selectedIds.addAll(allIds);
-      } else {
-        _selectedIds.clear();
-      }
+      if (isSelectAll) { _selectedIds.addAll(allIds); } else { _selectedIds.clear(); }
     });
   }
 
@@ -755,10 +713,7 @@ class _AdminApprovalScreenState extends State<AdminApprovalScreen>
           Checkbox(
             value: _isSelectAll,
             activeColor: const Color(0xFF1E3C72),
-            onChanged: (_) => _onSelectAllChanged(
-              _isSelectAll ? [] : _allPendingData.map((d) => d['group_id'] as String).toList(),
-              !_isSelectAll,
-            ),
+            onChanged: (_) => _onSelectAllChanged(_isSelectAll ? [] : _allPendingData.map((d) => d['group_id'] as String).toList(), !_isSelectAll),
           ),
           Text('$selectedCount dipilih', style: GoogleFonts.poppins(fontWeight: FontWeight.w600, color: _isDarkMode ? Colors.white : const Color(0xFF1E3C72))),
           const Spacer(),
@@ -798,11 +753,7 @@ class _AdminApprovalScreenState extends State<AdminApprovalScreen>
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Batal')),
-          ElevatedButton(
-            onPressed: () { Navigator.pop(context); _bulkProcess(ids, true, notesController.text.trim()); },
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-            child: const Text('Setujui Semua'),
-          ),
+          ElevatedButton(onPressed: () { Navigator.pop(context); _bulkProcess(ids, true, notesController.text.trim()); }, style: ElevatedButton.styleFrom(backgroundColor: Colors.green), child: const Text('Setujui Semua')),
         ],
       ),
     );
@@ -848,43 +799,28 @@ class _AdminApprovalScreenState extends State<AdminApprovalScreen>
         child: Container(
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const CircularProgressIndicator(color: Color(0xFF1E3C72)),
-              const SizedBox(height: 16),
-              Text('Memproses ${groupIds.length} pengajuan...', style: GoogleFonts.poppins(fontWeight: FontWeight.w500)),
-            ],
-          ),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            const CircularProgressIndicator(color: Color(0xFF1E3C72)),
+            const SizedBox(height: 16),
+            Text('Memproses ${groupIds.length} pengajuan...', style: GoogleFonts.poppins(fontWeight: FontWeight.w500)),
+          ]),
         ),
       ),
     );
 
     try {
       final result = await _approvalService.bulkApproval(
-        groupIds: groupIds,
-        isApprove: isApprove,
-        notes: notes,
-        approverName: _userName ?? 'Admin',
-        approverEmail: _userEmail ?? '',
-        approverId: _userId ?? '',
+        groupIds: groupIds, isApprove: isApprove, notes: notes,
+        approverName: _userName ?? 'Admin', approverEmail: _userEmail ?? '', approverId: _userId ?? '',
       );
-
       if (mounted) {
         Navigator.pop(context);
         _showSnackbar('Bulk done: ${result['totalSuccess']} sukses, ${result['totalFail']} gagal', isError: result['totalFail'] > 0);
         _loadStatistics();
-        setState(() {
-          _selectedIds.clear();
-          _isBulkMode = false;
-          _isSelectAll = false;
-        });
+        setState(() { _selectedIds.clear(); _isBulkMode = false; _isSelectAll = false; });
       }
     } catch (e) {
-      if (mounted) {
-        Navigator.pop(context);
-        _showSnackbar('Gagal memproses', isError: true);
-      }
+      if (mounted) { Navigator.pop(context); _showSnackbar('Gagal memproses', isError: true); }
     }
   }
 
@@ -898,9 +834,7 @@ class _AdminApprovalScreenState extends State<AdminApprovalScreen>
       child: TextField(
         onChanged: (value) {
           _searchDebounce?.cancel();
-          _searchDebounce = Timer(const Duration(milliseconds: 500), () {
-            setState(() => _searchQuery = value.toLowerCase());
-          });
+          _searchDebounce = Timer(const Duration(milliseconds: 500), () => setState(() => _searchQuery = value.toLowerCase()));
         },
         style: TextStyle(color: _isDarkMode ? Colors.white : Colors.black87),
         decoration: InputDecoration(
@@ -939,11 +873,7 @@ class _AdminApprovalScreenState extends State<AdminApprovalScreen>
           DropdownMenuItem(value: 'bs', child: Text('BS', style: TextStyle(fontSize: 13))),
         ],
         onChanged: (value) {
-          setState(() {
-            _fungsiFilter = value == 'semua' ? null : value;
-            _selectedIds.clear();
-            _isSelectAll = false;
-          });
+          setState(() { _fungsiFilter = value == 'semua' ? null : value; _selectedIds.clear(); _isSelectAll = false; });
           _loadStatistics();
         },
       ),
@@ -952,15 +882,13 @@ class _AdminApprovalScreenState extends State<AdminApprovalScreen>
 
   void _showSnackbar(String message, {bool isError = false}) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(children: [Icon(isError ? Icons.error : Icons.check_circle, color: Colors.white), const SizedBox(width: 8), Expanded(child: Text(message))]),
-        backgroundColor: isError ? Colors.red : Colors.green,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        duration: const Duration(seconds: 3),
-      ),
-    );
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Row(children: [Icon(isError ? Icons.error : Icons.check_circle, color: Colors.white), const SizedBox(width: 8), Expanded(child: Text(message))]),
+      backgroundColor: isError ? Colors.red : Colors.green,
+      behavior: SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      duration: const Duration(seconds: 3),
+    ));
   }
 
   String _getFungsiLabel(String? fungsi) {

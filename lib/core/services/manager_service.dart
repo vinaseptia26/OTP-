@@ -15,9 +15,9 @@ class ManagerService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final NotificationService _notifService = NotificationService();
 
-  // ============================================================================
+  
   // ⚡ NAMA KOLEKSI (KONSTAN)
-  // ============================================================================
+  
   static const String collectionPengajuan = 'pengajuan_lembur';
   static const String collectionLemburMitra = 'lembur_mitra';
 
@@ -477,7 +477,7 @@ class ManagerService {
   Future<void> markAllNotificationsRead() async {
     final user = _auth.currentUser;
     if (user == null) return;
-    await _notifService.markAllNotificationsAsReadFlat(user.uid);
+    await _notifService.markAllAsRead(user.uid);
   }
 
   // ==================== LOGOUT ====================

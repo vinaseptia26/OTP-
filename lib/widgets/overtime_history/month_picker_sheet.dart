@@ -1,9 +1,10 @@
+// lib/widgets/overtime_history/month_picker_sheet.dart
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
+import 'package:go_router/go_router.dart';
 
 class MonthPickerSheet {
-  /// Menampilkan bottom sheet untuk memilih bulan
   static void show(
     BuildContext context, {
     required String selectedMonth,
@@ -12,8 +13,9 @@ class MonthPickerSheet {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => _MonthPickerContent(
+      builder: (_) => _MonthPickerContent(
         selectedMonth: selectedMonth,
         onMonthSelected: onMonthSelected,
       ),
@@ -21,7 +23,7 @@ class MonthPickerSheet {
   }
 }
 
-class _MonthPickerContent extends StatelessWidget {
+class _MonthPickerContent extends StatefulWidget {
   final String selectedMonth;
   final ValueChanged<String> onMonthSelected;
 
@@ -31,269 +33,578 @@ class _MonthPickerContent extends StatelessWidget {
   });
 
   @override
+  State<_MonthPickerContent> createState() => _MonthPickerContentState();
+}
+
+class _MonthPickerContentState extends State<_MonthPickerContent>
+    with SingleTickerProviderStateMixin {
+  int _yearOffset = 0;
+
+  late AnimationController _controller;
+  late Animation<double> _fadeAnimation;
+
+  static const Color primaryColor = Color(0xFF0F172A);
+  static const Color secondaryColor = Color(0xFF1E293B);
+  static const Color accentColor = Color(0xFF2563EB);
+  static const Color backgroundColor = Color(0xFFF8FAFC);
+
+  final List<Map<String, dynamic>> months = [
+    {
+      'name': 'Jan',
+      'icon': Icons.ac_unit_rounded,
+      'color': Color(0xFF3B82F6),
+    },
+    {
+      'name': 'Feb',
+      'icon': Icons.favorite_rounded,
+      'color': Color(0xFFEC4899),
+    },
+    {
+      'name': 'Mar',
+      'icon': Icons.eco_rounded,
+      'color': Color(0xFF22C55E),
+    },
+    {
+      'name': 'Apr',
+      'icon': Icons.water_drop_rounded,
+      'color': Color(0xFF06B6D4),
+    },
+    {
+      'name': 'Mei',
+      'icon': Icons.local_florist_rounded,
+      'color': Color(0xFF8B5CF6),
+    },
+    {
+      'name': 'Jun',
+      'icon': Icons.wb_sunny_rounded,
+      'color': Color(0xFFF59E0B),
+    },
+    {
+      'name': 'Jul',
+      'icon': Icons.beach_access_rounded,
+      'color': Color(0xFF0EA5E9),
+    },
+    {
+      'name': 'Agu',
+      'icon': Icons.flag_rounded,
+      'color': Color(0xFFEF4444),
+    },
+    {
+      'name': 'Sep',
+      'icon': Icons.school_rounded,
+      'color': Color(0xFF6366F1),
+    },
+    {
+      'name': 'Okt',
+      'icon': Icons.spa_rounded,
+      'color': Color(0xFFF97316),
+    },
+    {
+      'name': 'Nov',
+      'icon': Icons.coffee_rounded,
+      'color': Color(0xFF64748B),
+    },
+    {
+      'name': 'Des',
+      'icon': Icons.card_giftcard_rounded,
+      'color': Color(0xFF14B8A6),
+    },
+  ];
+
+  DateTime get _displayedYear =>
+      DateTime(DateTime.now().year + _yearOffset);
+
+  @override
+  void initState() {
+    super.initState();
+
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 350),
+    );
+
+    _fadeAnimation = CurvedAnimation(
+      parent: _controller,
+      curve: Curves.easeOutCubic,
+    );
+
+    _controller.forward();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _changeYear(int value) {
+    setState(() {
+      _yearOffset += value;
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      child: Container(
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.of(context).size.height * 0.75,
-        ),
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Handle bar
-            const SizedBox(height: 12),
-            Container(
-              width: 50,
-              height: 5,
-              decoration: BoxDecoration(
-                color: Colors.grey.shade300,
-                borderRadius: BorderRadius.circular(20),
-              ),
+    final size = MediaQuery.of(context).size;
+    final currentMonth =
+        DateFormat('yyyy-MM').format(DateTime.now());
+
+    return FadeTransition(
+      opacity: _fadeAnimation,
+      child: SlideTransition(
+        position: Tween<Offset>(
+          begin: const Offset(0, .15),
+          end: Offset.zero,
+        ).animate(_fadeAnimation),
+        child: Container(
+          height: size.height * 0.76,
+          decoration: const BoxDecoration(
+            color: backgroundColor,
+            borderRadius: BorderRadius.vertical(
+              top: Radius.circular(30),
             ),
-            
-            // Header
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
-              child: Row(
-                children: [
-                  Container(
-                    width: 44,
-                    height: 44,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF1976D2).withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Icon(
-                      Icons.calendar_month,
-                      color: Color(0xFF1976D2),
-                      size: 24,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Text(
-                    'Pilih Bulan',
-                    style: GoogleFonts.poppins(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.black87,
-                    ),
-                  ),
-                  const Spacer(),
-                  // Quick select: Bulan ini
-                  TextButton(
-                    onPressed: () {
-                      final currentMonth = DateFormat('yyyy-MM').format(DateTime.now());
-                      onMonthSelected(currentMonth);
-                      Navigator.pop(context);
-                    },
-                    child: Text(
-                      'Bulan Ini',
-                      style: GoogleFonts.poppins(
-                        fontSize: 13,
-                        color: const Color(0xFF1976D2),
-                        fontWeight: FontWeight.w600,
+          ),
+          child: Column(
+            children: [
+              const SizedBox(height: 12),
+
+              // HANDLE
+              Container(
+                width: 52,
+                height: 5,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(30),
+                ),
+              ),
+
+              const SizedBox(height: 20),
+
+              // HEADER
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 52,
+                      height: 52,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(18),
+                        gradient: const LinearGradient(
+                          colors: [
+                            Color(0xFF1E293B),
+                            Color(0xFF0F172A),
+                          ],
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: primaryColor.withOpacity(.15),
+                            blurRadius: 18,
+                            offset: const Offset(0, 8),
+                          ),
+                        ],
+                      ),
+                      child: const Icon(
+                        Icons.calendar_month_rounded,
+                        color: Colors.white,
+                        size: 26,
                       ),
                     ),
+
+                    const SizedBox(width: 14),
+
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment:
+                            CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Pilih Bulan',
+                            style: GoogleFonts.poppins(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w700,
+                              color: primaryColor,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Filter histori lembur berdasarkan bulan',
+                            style: GoogleFonts.poppins(
+                              fontSize: 12,
+                              color: Colors.grey.shade500,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    GestureDetector(
+                      onTap: () {
+                        widget.onMonthSelected(currentMonth);
+                        context.pop();
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          color: accentColor,
+                          borderRadius:
+                              BorderRadius.circular(14),
+                          boxShadow: [
+                            BoxShadow(
+                              color:
+                                  accentColor.withOpacity(.25),
+                              blurRadius: 12,
+                              offset: const Offset(0, 5),
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.today_rounded,
+                              size: 16,
+                              color: Colors.white,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Sekarang',
+                              style: GoogleFonts.poppins(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 24),
+
+              // YEAR SELECTOR
+              Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 20),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 10,
                   ),
-                ],
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(22),
+                    border: Border.all(
+                      color: Colors.grey.shade200,
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      _yearButton(
+                        icon: Icons.chevron_left_rounded,
+                        onTap: () => _changeYear(-1),
+                      ),
+
+                      Expanded(
+                        child: Center(
+                          child: Text(
+                            '${_displayedYear.year}',
+                            style: GoogleFonts.poppins(
+                              fontSize: 24,
+                              fontWeight: FontWeight.w700,
+                              color: primaryColor,
+                            ),
+                          ),
+                        ),
+                      ),
+
+                      _yearButton(
+                        icon: Icons.chevron_right_rounded,
+                        onTap: _yearOffset >= 2
+                            ? null
+                            : () => _changeYear(1),
+                      ),
+                    ],
+                  ),
+                ),
               ),
-            ),
 
-            const SizedBox(height: 16),
+              const SizedBox(height: 22),
 
-            // Divider
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Container(height: 1, color: Colors.grey.shade200),
-            ),
+              // GRID
+              Expanded(
+                child: GridView.builder(
+                  padding: const EdgeInsets.fromLTRB(
+                    20,
+                    0,
+                    20,
+                    20,
+                  ),
+                  physics:
+                      const BouncingScrollPhysics(),
+                  itemCount: 12,
+                  gridDelegate:
+                      const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 3,
+                    crossAxisSpacing: 14,
+                    mainAxisSpacing: 14,
+                    childAspectRatio: .95,
+                  ),
+                  itemBuilder: (context, index) {
+                    final month = index + 1;
+                    final monthDate = DateTime(
+                      _displayedYear.year,
+                      month,
+                    );
 
-            const SizedBox(height: 8),
+                    final monthStr =
+                        DateFormat('yyyy-MM')
+                            .format(monthDate);
 
-            // Month list
-            Flexible(
-              child: ListView.builder(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                shrinkWrap: true,
-                itemCount: 12, // 12 bulan ke belakang
-                itemBuilder: (context, index) {
-                  final date = DateTime(
-                    DateTime.now().year,
-                    DateTime.now().month - index,
-                  );
-                  final monthStr = DateFormat('yyyy-MM').format(date);
-                  final monthDisplay = DateFormat('MMMM yyyy', 'id_ID').format(date);
-                  final isSelected = selectedMonth == monthStr;
-                  final isCurrentMonth = index == 0;
+                    final bool isSelected =
+                        widget.selectedMonth ==
+                            monthStr;
 
-                  return _MonthItem(
-                    monthStr: monthStr,
-                    monthDisplay: monthDisplay,
-                    isSelected: isSelected,
-                    isCurrentMonth: isCurrentMonth,
-                    onTap: () {
-                      onMonthSelected(monthStr);
-                      Navigator.pop(context);
-                    },
-                  );
-                },
+                    final bool isCurrentMonth =
+                        currentMonth == monthStr;
+
+                    final data = months[index];
+
+                    return _MonthCard(
+                      month: month,
+                      title: data['name'],
+                      icon: data['icon'],
+                      color: data['color'],
+                      isSelected: isSelected,
+                      isCurrentMonth: isCurrentMonth,
+                      onTap: () {
+                        widget.onMonthSelected(
+                          monthStr,
+                        );
+                        context.pop();
+                      },
+                    );
+                  },
+                ),
               ),
-            ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
-            const SizedBox(height: 16),
-          ],
+  Widget _yearButton({
+    required IconData icon,
+    required VoidCallback? onTap,
+  }) {
+    final bool disabled = onTap == null;
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        width: 44,
+        height: 44,
+        decoration: BoxDecoration(
+          color: disabled
+              ? Colors.grey.shade100
+              : const Color(0xFFF1F5F9),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Icon(
+          icon,
+          color: disabled
+              ? Colors.grey.shade400
+              : primaryColor,
         ),
       ),
     );
   }
 }
 
-class _MonthItem extends StatelessWidget {
-  final String monthStr;
-  final String monthDisplay;
+class _MonthCard extends StatefulWidget {
+  final int month;
+  final String title;
+  final IconData icon;
+  final Color color;
   final bool isSelected;
   final bool isCurrentMonth;
   final VoidCallback onTap;
 
-  const _MonthItem({
-    required this.monthStr,
-    required this.monthDisplay,
+  const _MonthCard({
+    required this.month,
+    required this.title,
+    required this.icon,
+    required this.color,
     required this.isSelected,
     required this.isCurrentMonth,
     required this.onTap,
   });
 
   @override
+  State<_MonthCard> createState() => _MonthCardState();
+}
+
+class _MonthCardState extends State<_MonthCard>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _scaleAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 120),
+    );
+
+    _scaleAnimation = Tween<double>(
+      begin: 1,
+      end: .96,
+    ).animate(_controller);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(16),
-          onTap: onTap,
-          child: Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: isSelected 
-                  ? const Color(0xFF1976D2).withValues(alpha: 0.1) 
-                  : Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: isSelected 
-                    ? const Color(0xFF1976D2) 
-                    : Colors.grey.shade300,
-                width: isSelected ? 2 : 1,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.03),
-                  blurRadius: 6,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: Row(
-              children: [
-                // Month icon
-                Container(
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    color: isSelected 
-                        ? const Color(0xFF1976D2) 
-                        : Colors.grey.shade200,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(
-                    Icons.date_range,
-                    color: isSelected ? Colors.white : Colors.grey.shade600,
-                    size: 22,
-                  ),
-                ),
-                const SizedBox(width: 14),
-                
-                // Month info
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Text(
-                            monthDisplay,
-                            style: GoogleFonts.poppins(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w600,
-                              color: isSelected 
-                                  ? const Color(0xFF1976D2) 
-                                  : Colors.black87,
-                            ),
-                          ),
-                          if (isCurrentMonth) ...[
-                            const SizedBox(width: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 6,
-                                vertical: 2,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.green.withValues(alpha: 0.1),
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: Text(
-                                'Sekarang',
-                                style: GoogleFonts.poppins(
-                                  fontSize: 9,
-                                  color: Colors.green,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        monthStr,
-                        style: GoogleFonts.poppins(
-                          fontSize: 11,
-                          color: Colors.grey.shade600,
-                        ),
-                      ),
+    return GestureDetector(
+      onTapDown: (_) => _controller.forward(),
+      onTapCancel: () => _controller.reverse(),
+      onTapUp: (_) {
+        _controller.reverse();
+        widget.onTap();
+      },
+      child: AnimatedBuilder(
+        animation: _scaleAnimation,
+        builder: (context, child) {
+          return Transform.scale(
+            scale: _scaleAnimation.value,
+            child: child,
+          );
+        },
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 250),
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(22),
+            gradient: widget.isSelected
+                ? LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      widget.color,
+                      widget.color.withOpacity(.82),
                     ],
+                  )
+                : null,
+            color: widget.isSelected
+                ? null
+                : Colors.white,
+            border: Border.all(
+              color: widget.isSelected
+                  ? widget.color
+                  : widget.isCurrentMonth
+                      ? widget.color.withOpacity(.4)
+                      : Colors.grey.shade200,
+              width: widget.isSelected ? 1.8 : 1,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: widget.isSelected
+                    ? widget.color.withOpacity(.22)
+                    : Colors.black.withOpacity(.03),
+                blurRadius: widget.isSelected ? 18 : 10,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisAlignment:
+                MainAxisAlignment.center,
+            children: [
+              Container(
+                width: 52,
+                height: 52,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: widget.isSelected
+                      ? Colors.white.withOpacity(.18)
+                      : widget.color.withOpacity(.10),
+                ),
+                child: Icon(
+                  widget.icon,
+                  color: widget.isSelected
+                      ? Colors.white
+                      : widget.color,
+                  size: 24,
+                ),
+              ),
+
+              const SizedBox(height: 14),
+
+              Text(
+                widget.title,
+                style: GoogleFonts.poppins(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  color: widget.isSelected
+                      ? Colors.white
+                      : const Color(0xFF0F172A),
+                ),
+              ),
+
+              const SizedBox(height: 3),
+
+              Text(
+                'Bulan ${widget.month}',
+                style: GoogleFonts.poppins(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                  color: widget.isSelected
+                      ? Colors.white70
+                      : Colors.grey.shade500,
+                ),
+              ),
+
+              if (widget.isCurrentMonth &&
+                  !widget.isSelected) ...[
+                const SizedBox(height: 8),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: widget.color,
+                    borderRadius:
+                        BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    'CURRENT',
+                    style: GoogleFonts.poppins(
+                      fontSize: 9,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                      letterSpacing: .5,
+                    ),
                   ),
                 ),
-                
-                // Selection indicator
-                if (isSelected)
-                  Container(
-                    width: 32,
-                    height: 32,
-                    decoration: const BoxDecoration(
-                      color: Color(0xFF1976D2),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.check,
-                      color: Colors.white,
-                      size: 18,
-                    ),
-                  )
-                else
-                  Container(
-                    width: 32,
-                    height: 32,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.grey.shade300),
-                    ),
-                  ),
               ],
-            ),
+            ],
           ),
         ),
       ),

@@ -1,5 +1,6 @@
 // lib/features/manager/widgets/manager_menu.dart
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart'; // 🔥 Tambahkan import GoRouter
 import '../../core/services/manager_service.dart';
 
 
@@ -13,18 +14,11 @@ class ManagerMenu extends StatelessWidget {
   Widget build(BuildContext context) {
     final menuItems = [
       {
-        'title': 'Persetujuan',
-        'icon': Icons.pending_actions,
-        'count': data.totalPending,
-        'countColor': Colors.red,
-        'route': '/approval-lembur'
-      },
-      {
         'title': 'Riwayat Lembur',
         'icon': Icons.history,
         'count': data.totalApproved + data.totalRejected,
         'countColor': Colors.blue,
-        'route': '/overtime-history'
+        'route': '/overtime-data'
       },
       {
         'title': 'Tim Saya',
@@ -34,16 +28,23 @@ class ManagerMenu extends StatelessWidget {
         'route': '/my-team'
       },
       {
-        'title': 'Lokasi',
+        'title': 'Monitoring Lokasi',
         'icon': Icons.location_on,
         'count': data.onlineMembers,
         'countColor': Colors.teal,
         'route': '/location-monitoring'
       },
       {
-        'title': 'Pengaturan',
-        'icon': Icons.settings,
-        'route': '/settings'
+        'title': 'Laporan',
+        'icon': Icons.assessment_rounded,
+        'count': data.recentActivities.length,
+        'route': '/reports-audit',
+      },
+       {
+        'title': 'FAQ',
+        'icon': Icons.help_center,
+        'count': data.recentActivities.length,
+        'route': '/faq'
       },
     ];
 
@@ -171,8 +172,9 @@ class ManagerMenu extends StatelessWidget {
 
   /// Navigasi ke halaman sesuai menu
   void _navigateTo(BuildContext context, String menu, String route) {
+    // 🔥 Ganti Navigator.pushNamed dengan context.push (GoRouter)
     try {
-      Navigator.pushNamed(context, route);
+      context.push(route);
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

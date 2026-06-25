@@ -1,7 +1,5 @@
-// ============================================================================
-// LOCATION VALIDATOR - SAFE & EFFICIENT VERSION
+// LOCATION VALIDATOR - FIXED & SAFE VERSION (WITH WEB SUPPORT)
 // File: /widgets/absensi/location_validator.dart
-// ============================================================================
 
 import 'dart:async';
 import 'dart:math';
@@ -13,23 +11,24 @@ import 'package:geolocator/geolocator.dart';
 import '/core/services/overtime_history_service.dart';
 
 class LocationValidator {
-  // ============================================================================
+  
+  // ===========================================================================
   // DEFAULT CONFIG
-  // ============================================================================
+  // ===========================================================================
 
   static const double defaultRadiusOffice = 100.0;
   static const double defaultRadiusProject = 500.0;
-
-  /// Medium lebih aman untuk device low-end daripada high.
   static const LocationAccuracy defaultAccuracy = LocationAccuracy.medium;
-
   static const int locationTimeoutSeconds = 30;
   static const int geocodingTimeoutSeconds = 10;
   static const int maxLocationRetries = 2;
 
-  // ============================================================================
+  // Cache untuk address
+  final Map<String, String> _addressCache = {};
+
+  // ===========================================================================
   // LOCATION SERVICE & PERMISSION
-  // ============================================================================
+  // ===========================================================================
 
   Future<bool> isLocationServiceEnabled() async {
     try {
@@ -73,9 +72,9 @@ class LocationValidator {
         permission == LocationPermission.always;
   }
 
-  // ============================================================================
+  // ===========================================================================
   // LOCATION AVAILABILITY
-  // ============================================================================
+  // ===========================================================================
 
   Future<Map<String, dynamic>> checkLocationAvailability() async {
     try {
@@ -118,9 +117,9 @@ class LocationValidator {
     }
   }
 
-  // ============================================================================
+  // ===========================================================================
   // GET CURRENT LOCATION
-  // ============================================================================
+  // ===========================================================================
 
   Future<Position?> getCurrentLocation({
     LocationAccuracy accuracy = defaultAccuracy,
@@ -210,55 +209,128 @@ class LocationValidator {
     }
   }
 
-  // ============================================================================
-  // ADDRESS FROM COORDINATES
-  // ============================================================================
+  // ===========================================================================
+  // ADDRESS FROM COORDINATES - FIXED FOR WEB
+  // ===========================================================================
 
   Future<String?> getAddressFromCoordinates(
     double latitude,
     double longitude,
   ) async {
+    // 🔥 Cek cache dulu
+    final cacheKey = '${latitude.toStringAsFixed(6)},${longitude.toStringAsFixed(6)}';
+    if (_addressCache.containsKey(cacheKey)) {
+      return _addressCache[cacheKey];
+    }
+
+    // 🔥 FIX: Untuk Web, langsung return fallback (geocoding sering error)
+    if (kIsWeb) {
+      debugPrint('LocationValidator: Web platform - using fallback address');
+      final fallback = _getFallbackAddress(latitude, longitude);
+      _addressCache[cacheKey] = fallback;
+      return fallback;
+    }
+
     try {
+      // Validasi koordinat
       if (!_isValidCoordinate(latitude, longitude)) {
         debugPrint('LocationValidator: Invalid coordinate for geocoding');
         return null;
       }
 
-      final placemarks = await placemarkFromCoordinates(
-        latitude,
-        longitude,
-      ).timeout(const Duration(seconds: geocodingTimeoutSeconds));
+      debugPrint('LocationValidator: Geocoding coordinates: $latitude, $longitude');
 
-      if (placemarks.isEmpty) return null;
+      // 🔥 FIX: Gunakan try-catch dengan fallback untuk semua error
+      try {
+        final placemarks = await placemarkFromCoordinates(
+          latitude,
+          longitude,
+        ).timeout(const Duration(seconds: geocodingTimeoutSeconds));
 
-      final place = placemarks.first;
-      final parts = <String>[
-        if (place.street?.trim().isNotEmpty == true) place.street!.trim(),
-        if (place.subLocality?.trim().isNotEmpty == true)
-          place.subLocality!.trim(),
-        if (place.locality?.trim().isNotEmpty == true) place.locality!.trim(),
-        if (place.subAdministrativeArea?.trim().isNotEmpty == true)
-          place.subAdministrativeArea!.trim(),
-        if (place.administrativeArea?.trim().isNotEmpty == true)
-          place.administrativeArea!.trim(),
-        if (place.country?.trim().isNotEmpty == true) place.country!.trim(),
-      ];
+        debugPrint('LocationValidator: Geocoding result: ${placemarks.length} placemarks found');
 
-      if (parts.isEmpty) return null;
+        if (placemarks.isEmpty) {
+          debugPrint('LocationValidator: No placemarks found');
+          final fallback = _getFallbackAddress(latitude, longitude);
+          _addressCache[cacheKey] = fallback;
+          return fallback;
+        }
 
-      return parts.join(', ');
+        final place = placemarks.first;
+        
+        // 🔧 FIX: Gunakan safe getter untuk setiap field
+        final parts = <String>[];
+        
+        final street = _safeString(place.street);
+        if (street.isNotEmpty) parts.add(street);
+        
+        final subLocality = _safeString(place.subLocality);
+        if (subLocality.isNotEmpty) parts.add(subLocality);
+        
+        final locality = _safeString(place.locality);
+        if (locality.isNotEmpty) parts.add(locality);
+        
+        final subAdminArea = _safeString(place.subAdministrativeArea);
+        if (subAdminArea.isNotEmpty) parts.add(subAdminArea);
+        
+        final adminArea = _safeString(place.administrativeArea);
+        if (adminArea.isNotEmpty) parts.add(adminArea);
+        
+        final country = _safeString(place.country);
+        if (country.isNotEmpty) parts.add(country);
+
+        if (parts.isEmpty) {
+          debugPrint('LocationValidator: All placemark fields are empty');
+          final fallback = _getFallbackAddress(latitude, longitude);
+          _addressCache[cacheKey] = fallback;
+          return fallback;
+        }
+
+        final address = parts.join(', ');
+        debugPrint('LocationValidator: Address built: $address');
+        
+        // Simpan ke cache
+        _addressCache[cacheKey] = address;
+        return address;
+        
+      } catch (geocodingError) {
+        debugPrint('LocationValidator: Geocoding error (inner): $geocodingError');
+        final fallback = _getFallbackAddress(latitude, longitude);
+        _addressCache[cacheKey] = fallback;
+        return fallback;
+      }
+      
     } on TimeoutException {
       debugPrint('LocationValidator: Geocoding timeout');
-      return null;
-    } catch (e) {
+      final fallback = _getFallbackAddress(latitude, longitude);
+      _addressCache[cacheKey] = fallback;
+      return fallback;
+    } catch (e, stacktrace) {
       debugPrint('LocationValidator: Geocoding error: $e');
-      return null;
+      debugPrint('LocationValidator: Stacktrace: $stacktrace');
+      final fallback = _getFallbackAddress(latitude, longitude);
+      _addressCache[cacheKey] = fallback;
+      return fallback;
     }
   }
 
-  // ============================================================================
-  // VALIDATE LOCATION
-  // ============================================================================
+  /// 🔥 Fallback address ketika geocoding gagal
+  String _getFallbackAddress(double latitude, double longitude) {
+    final latStr = latitude.toStringAsFixed(6);
+    final lngStr = longitude.toStringAsFixed(6);
+    return '📍 $latStr, $lngStr';
+  }
+
+  // 🔧 Helper: Safe string getter
+  String _safeString(dynamic value) {
+    if (value == null) return '';
+    if (value is String) return value.trim();
+    return value.toString().trim();
+  }
+
+  // ===========================================================================
+  // VALIDATE LOCATION - FIXED
+  // ===========================================================================
 
   Future<Map<String, dynamic>> validateLocation({
     required double currentLat,
@@ -273,16 +345,60 @@ class LocationValidator {
         );
       }
 
-      final lokasi = _parseMap(overtimeItem.lokasi);
+      // 🔧 FIX: Parse dengan safe
+      final lokasi = _parseMapSafe(overtimeItem.lokasi);
 
       if (lokasi.isEmpty) {
-        return _successNoReference();
+        // 🔧 FIX: Jangan langsung return success
+        // Cek apakah ada lokasi default dari overtime item
+        final defaultLat = _parseDoubleSafe(overtimeItem.lokasi?['latitude']);
+        final defaultLng = _parseDoubleSafe(overtimeItem.lokasi?['longitude']);
+        
+        if (defaultLat == null || defaultLng == null) {
+          // Jika benar-benar tidak ada koordinat, izinkan absensi
+          debugPrint('LocationValidator: No location reference found, allowing');
+          return _successNoReference();
+        }
+        
+        // Gunakan default yang ada
+        final maxRadius = _getMaximumRadiusSafe(overtimeItem.lokasi);
+        final distance = _safeDistanceBetween(
+          currentLat,
+          currentLng,
+          defaultLat,
+          defaultLng,
+        );
+        
+        if (distance == null) {
+          return _failure(
+            message: 'Gagal menghitung jarak lokasi',
+            errorCode: 'distance_calculation_failed',
+          );
+        }
+        
+        final isValid = distance <= maxRadius;
+        
+        return {
+          'valid': isValid,
+          'distance': distance,
+          'distance_text': formatDistance(distance),
+          'max_radius': maxRadius,
+          'max_radius_text': formatDistance(maxRadius),
+          'target_latitude': defaultLat,
+          'target_longitude': defaultLng,
+          'current_latitude': currentLat,
+          'current_longitude': currentLng,
+          'message': isValid
+              ? 'Lokasi valid (${formatDistance(distance)} dari target)'
+              : 'Di luar radius absensi (${formatDistance(distance)}, maksimal ${formatDistance(maxRadius)})',
+        };
       }
 
-      final targetLat = _parseDouble(lokasi['latitude']);
-      final targetLng = _parseDouble(lokasi['longitude']);
+      final targetLat = _parseDoubleSafe(lokasi['latitude']);
+      final targetLng = _parseDoubleSafe(lokasi['longitude']);
 
       if (targetLat == null || targetLng == null) {
+        debugPrint('LocationValidator: Target coordinates not found, allowing');
         return _successNoReference();
       }
 
@@ -293,7 +409,7 @@ class LocationValidator {
         );
       }
 
-      final maxRadius = _getMaximumRadius(lokasi);
+      final maxRadius = _getMaximumRadiusSafe(lokasi);
 
       final distance = _safeDistanceBetween(
         currentLat,
@@ -360,9 +476,9 @@ class LocationValidator {
     );
   }
 
-  // ============================================================================
+  // ===========================================================================
   // BATCH VALIDATION
-  // ============================================================================
+  // ===========================================================================
 
   Future<bool> validateAnyLocation({
     required double currentLat,
@@ -373,16 +489,16 @@ class LocationValidator {
     if (targetLocations.isEmpty) return true;
 
     for (final rawTarget in targetLocations) {
-      final target = _parseMap(rawTarget);
+      final target = _parseMapSafe(rawTarget);
       if (target.isEmpty) continue;
 
-      final targetLat = _parseDouble(target['latitude']);
-      final targetLng = _parseDouble(target['longitude']);
+      final targetLat = _parseDoubleSafe(target['latitude']);
+      final targetLng = _parseDoubleSafe(target['longitude']);
 
       if (targetLat == null || targetLng == null) continue;
       if (!_isValidCoordinate(targetLat, targetLng)) continue;
 
-      final maxRadius = _getMaximumRadius(target);
+      final maxRadius = _getMaximumRadiusSafe(target);
 
       final distance = _safeDistanceBetween(
         currentLat,
@@ -404,9 +520,9 @@ class LocationValidator {
     return false;
   }
 
-  // ============================================================================
+  // ===========================================================================
   // OPEN SETTINGS
-  // ============================================================================
+  // ===========================================================================
 
   Future<bool> openLocationSettings() async {
     try {
@@ -428,20 +544,30 @@ class LocationValidator {
     }
   }
 
-  // ============================================================================
-  // SAFE HELPERS
-  // ============================================================================
+  // ===========================================================================
+  // SAFE HELPERS - FIXED
+  // ===========================================================================
 
-  Map<String, dynamic> _parseMap(dynamic value) {
+  // 🔧 FIX: Safe map parser
+  Map<String, dynamic> _parseMapSafe(dynamic value) {
     try {
       if (value == null) return {};
-
+      
       if (value is Map<String, dynamic>) {
         return value;
       }
-
+      
       if (value is Map) {
-        return Map<String, dynamic>.from(value);
+        // Convert safely
+        final result = <String, dynamic>{};
+        value.forEach((key, val) {
+          if (key is String) {
+            result[key] = val;
+          } else {
+            result[key.toString()] = val;
+          }
+        });
+        return result;
       }
 
       debugPrint('LocationValidator: Unknown map type: ${value.runtimeType}');
@@ -452,7 +578,8 @@ class LocationValidator {
     }
   }
 
-  double? _parseDouble(dynamic value) {
+  // 🔧 FIX: Safe double parser
+  double? _parseDoubleSafe(dynamic value) {
     try {
       if (value == null) return null;
 
@@ -478,7 +605,11 @@ class LocationValidator {
         return result;
       }
 
-      final result = double.tryParse(value.toString().trim());
+      // 🔧 FIX: Handle null toString
+      final str = value.toString().trim();
+      if (str.isEmpty || str == 'null') return null;
+      
+      final result = double.tryParse(str);
       if (result == null || result.isNaN || result.isInfinite) return null;
       return result;
     } catch (e) {
@@ -488,56 +619,51 @@ class LocationValidator {
   }
 
   bool _isValidCoordinate(double lat, double lng) {
-    return !lat.isNaN &&
-        !lng.isNaN &&
-        !lat.isInfinite &&
-        !lng.isInfinite &&
-        lat >= -90 &&
-        lat <= 90 &&
-        lng >= -180 &&
-        lng <= 180;
+    if (lat.isNaN || lng.isNaN) return false;
+    if (lat.isInfinite || lng.isInfinite) return false;
+    if (lat < -90 || lat > 90) return false;
+    if (lng < -180 || lng > 180) return false;
+    return true;
   }
 
-  double _getMaximumRadius(Map<String, dynamic> lokasi) {
+  // 🔧 FIX: Safe max radius getter
+  double _getMaximumRadiusSafe(dynamic lokasiData) {
     try {
-      final customMeter = _parseDouble(lokasi['radius_meter']);
+      final lokasi = _parseMapSafe(lokasiData);
+      
+      // Coba berbagai format radius
+      final customMeter = _parseDoubleSafe(lokasi['radius_meter']);
       if (customMeter != null && customMeter > 0) {
         return customMeter;
       }
 
-      final customKm = _parseDouble(lokasi['radius_km']);
+      final customKm = _parseDoubleSafe(lokasi['radius_km']);
       if (customKm != null && customKm > 0) {
         return customKm * 1000;
       }
 
-      final radius = _parseDouble(lokasi['radius']);
+      final radius = _parseDoubleSafe(lokasi['radius']);
       if (radius != null && radius > 0) {
         return radius;
       }
 
-      final jenis = (lokasi['tipe_lokasi'] ?? lokasi['jenis'] ?? '')
-          .toString()
-          .toLowerCase()
-          .trim();
-
-      switch (jenis) {
-        case 'kantor':
-        case 'office':
-        case 'gedung':
-        case 'building':
-          return defaultRadiusOffice;
-
-        case 'project':
-        case 'proyek':
-        case 'lapangan':
-        case 'field':
-        case 'site':
-        case 'lokasi':
-          return defaultRadiusProject;
-
-        default:
-          return defaultRadiusProject;
+      final maxRadius = _parseDoubleSafe(lokasi['max_radius']);
+      if (maxRadius != null && maxRadius > 0) {
+        return maxRadius;
       }
+
+      // Cek tipe lokasi
+      final jenis = _safeString(lokasi['tipe_lokasi'] ?? lokasi['jenis'] ?? '')
+          .toLowerCase();
+
+      if (jenis.contains('kantor') || 
+          jenis.contains('office') || 
+          jenis.contains('gedung') || 
+          jenis.contains('building')) {
+        return defaultRadiusOffice;
+      }
+
+      return defaultRadiusProject;
     } catch (e) {
       debugPrint('LocationValidator: Error getting max radius: $e');
       return defaultRadiusProject;
@@ -597,9 +723,9 @@ class LocationValidator {
     };
   }
 
-  // ============================================================================
+  // ===========================================================================
   // DISTANCE CALCULATION - HAVERSINE
-  // ============================================================================
+  // ===========================================================================
 
   double calculateDistanceManual(
     double lat1,
@@ -633,9 +759,9 @@ class LocationValidator {
     return degree * pi / 180;
   }
 
-  // ============================================================================
+  // ===========================================================================
   // FORMATTER
-  // ============================================================================
+  // ===========================================================================
 
   String formatDistance(double? meters) {
     if (meters == null || meters.isNaN || meters.isInfinite) {

@@ -1,5 +1,6 @@
 // lib/features/mitra/widgets/mitra_menu.dart
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart'; // 🔥 Tambahkan import GoRouter
 import '../../../core/services/mitra_service.dart';
 
 class MitraMenu extends StatelessWidget {
@@ -11,12 +12,11 @@ class MitraMenu extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final menus = [
-      {'icon': Icons.calendar_month, 'title': 'Jadwal', 'route': '/jadwal-lembur-menu'},
+      {'icon': Icons.calendar_month, 'title': 'Jadwal', 'route': '/jadwal-lembur'},
       {'icon': Icons.history, 'title': 'Riwayat Lembur', 'route': '/overtime-data'},
       {'icon': Icons.fingerprint, 'title': 'Riwayat Absensi', 'route': '/riwayat-absensi'},
       {'icon': Icons.receipt, 'title': 'Pendapatan', 'route': '/income'},
-      {'icon': Icons.person, 'title': 'Profil', 'route': '/profile'},
-      {'icon': Icons.help, 'title': 'Bantuan', 'route': '/help'},
+      {'icon': Icons.help_center, 'title': 'FAQ', 'route': '/faq'},
     ];
 
     final colors = const [
@@ -34,7 +34,8 @@ class MitraMenu extends StatelessWidget {
         final m = menus[index];
         final color = colors[index % colors.length];
         return GestureDetector(
-          onTap: () => Navigator.pushNamed(context, m['route'] as String),
+          // 🔥 Ganti Navigator.pushNamed dengan context.push (GoRouter)
+          onTap: () => context.push(m['route'] as String),
           child: Container(
             decoration: BoxDecoration(
               gradient: LinearGradient(colors: [color, color.withAlpha(180)]),

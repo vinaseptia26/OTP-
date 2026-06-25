@@ -50,7 +50,7 @@ class PengawasKeyMetrics extends StatelessWidget {
               const SizedBox(width: 12),
               _buildMetricItem(
                 icon: Icons.pending_actions_rounded,
-                label: 'Pending Approval',
+                label: 'Pending Persetujuan',
                 value: formatNumber(pendingApprovals),
                 color: const Color(0xFFf5af19),
               ),

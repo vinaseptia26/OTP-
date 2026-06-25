@@ -1,7 +1,7 @@
 // lib/core/services/spkl_generator_service.dart
-// ============================================================================
+
 // SPKL GENERATOR SERVICE - BISA PREVIEW DI WEB & MOBILE
-// ============================================================================
+
 
 import 'dart:io';
 import 'dart:typed_data';
@@ -31,9 +31,9 @@ class SpklGeneratorService {
   static pw.Font? _regularFont;
   static pw.Font? _boldFont;
 
-  // ============================================================================
+  
   // LOAD FONTS
-  // ============================================================================
+  
 
   Future<void> _loadFonts() async {
     if (_regularFont != null && _boldFont != null) return;
@@ -54,9 +54,9 @@ class SpklGeneratorService {
     }
   }
 
-  // ============================================================================
+  
   // GENERATE PDF BYTES (DIGUNAKAN UNTUK PREVIEW)
-  // ============================================================================
+  
 
   Future<Uint8List> generatePdfBytes(
     Map<String, dynamic> spklData,
@@ -310,9 +310,9 @@ class SpklGeneratorService {
     return pdf.save();
   }
 
-  // ============================================================================
+  
   // GENERATE & SAVE PDF (MOBILE ONLY)
-  // ============================================================================
+  
 
   Future<String> generateSpklPdf(
     Map<String, dynamic> spklData,
@@ -350,9 +350,9 @@ class SpklGeneratorService {
     }
   }
 
-  // ============================================================================
+  
   // OPEN PDF
-  // ============================================================================
+  
 
   Future<void> openPdf(String path) async {
     try {
@@ -366,9 +366,9 @@ class SpklGeneratorService {
     }
   }
 
-  // ============================================================================
+  
   // PRINT PDF
-  // ============================================================================
+  
 
   Future<void> printPdf(
     Map<String, dynamic> spklData,
@@ -386,9 +386,9 @@ class SpklGeneratorService {
     }
   }
 
-  // ============================================================================
+  
   // HELPER WIDGETS
-  // ============================================================================
+  
 
   pw.Widget _buildHeader(String nomorSpkl) {
     return pw.Container(

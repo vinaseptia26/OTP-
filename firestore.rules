@@ -45,6 +45,20 @@ service cloud.firestore {
       return getCurrentUserRole() == 'manager';
     }
 
+    function isManagerHSSE() {
+      return getCurrentUserRole() == 'manager_hsse';
+    }
+
+    // 🔥 MANAGER DENGAN FUNGSI HSSE = HSSE MANAGER LINTAS FUNGSI
+    function isHSSEManagerFromFungsi() {
+      return isManager() && getCurrentUserFungsi() == 'hsse';
+    }
+
+    // 🔥 GABUNGAN: role manager_hsse ATAU manager fungsi hsse
+    function isAnyHSSEManager() {
+      return isManagerHSSE() || isHSSEManagerFromFungsi();
+    }
+
     function isPengawas() {
       return getCurrentUserRole() == 'pengawas';
     }
@@ -53,34 +67,44 @@ service cloud.firestore {
       return getCurrentUserRole() == 'mitra';
     }
 
+    function isOfficerSafety() {
+      return getCurrentUserRole() == 'officer_safety';
+    }
+
     function isAdminOrAbove() {
-      return getCurrentUserRole() in ['superadmin', 'manager', 'pengawas'];
+      return getCurrentUserRole() in ['superadmin', 'manager', 'manager_hsse', 'pengawas', 'officer_safety'];
+    }
+
+    function isManagerOrAbove() {
+      return getCurrentUserRole() in ['superadmin', 'manager', 'manager_hsse', 'officer_safety'];
     }
 
     function canManageUsers() {
       return getCurrentUserRole() in ['superadmin', 'manager'];
     }
 
+    function canValidateRisk() {
+      return getCurrentUserRole() in ['superadmin', 'manager_hsse', 'officer_safety']
+        || isHSSEManagerFromFungsi();
+    }
+
+    function canApproveHighRisk() {
+      return getCurrentUserRole() in ['superadmin', 'manager_hsse', 'officer_safety']
+        || isHSSEManagerFromFungsi();
+    }
+
     function isValidLemburData() {
       let data = request.resource.data;
       return data.keys().hasAll([
-        'group_id',
-        'tanggal',
-        'jam_mulai',
-        'jam_selesai',
-        'total_jam_desimal',
-        'status'
+        'group_id', 'tanggal', 'jam_mulai', 'jam_selesai',
+        'total_jam_desimal', 'status'
       ]);
     }
 
     function isValidPengajuanData() {
       let data = request.resource.data;
       return data.keys().hasAll([
-        'group_id',
-        'pengawas_id',
-        'tanggal_lembur',
-        'mitra_ids',
-        'status'
+        'group_id', 'pengawas_id', 'tanggal_lembur', 'mitra_ids', 'status'
       ]);
     }
 
@@ -97,11 +121,148 @@ service cloud.firestore {
     }
 
     function isValidRole(role) {
-      return role in ['superadmin', 'manager', 'pengawas', 'mitra'];
+      return role in ['superadmin', 'manager', 'manager_hsse', 'pengawas', 'mitra', 'officer_safety'];
     }
 
     function isValidFungsi(fungsi) {
       return fungsi in ['operation', 'lab', 'maintenance', 'hsse', 'gpr', 'bs'];
+    }
+
+    function isValidStatusAkun(status) {
+      return status in ['active', 'inactive', 'blocked'];
+    }
+
+    function isValidRiskLevel(level) {
+      return level in ['none', 'low', 'medium', 'high', 'critical'];
+    }
+
+    // 🔥 Helper: Validasi field yang boleh diupdate mitra untuk absensi
+    function isMitraAbsensiUpdate() {
+      let allowedFields = [
+        // Basic absensi
+        'absensi_status', 'absensi_waktu', 'absensi_checkout_waktu',
+        'absensi_oleh', 'absensi_nama', 'absensi_foto_url',
+        
+        // 🔥 KONFIRMASI KETERLAMBATAN (DULU MISSING!)
+        'absensi_keterlambatan',
+        
+        // Status & completion
+        'status', 'completed_at', 'updated_at',
+        
+        // Expired handling
+        'expired_at', 'expired_reason',
+        
+        // Income calculation
+        'actual_total_jam', 'actual_income', 'income_amount',
+        'is_income_calculated',
+        
+        // Check-in/out
+        'check_in_foto_url', 'check_out_foto_url',
+        'check_in_waktu', 'check_out_waktu'
+      ];
+      
+      return request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(allowedFields);
+    }
+
+    // 🔥 Helper: Validasi field yang boleh diupdate pengawas
+    function isPengawasUpdate() {
+      let allowedFields = [
+        'status', 'absensi_status', 'absensi_waktu', 'absensi_checkout_waktu',
+        'absensi_oleh', 'absensi_nama', 'absensi_foto_url',
+        'absensi_keterlambatan',
+        'check_in_foto_url', 'check_out_foto_url',
+        'check_in_waktu', 'check_out_waktu',
+        'actual_total_jam', 'actual_income', 'income_amount',
+        'is_income_calculated', 'completed_at', 'updated_at',
+        'expired_at', 'expired_reason', 'requires_hsse_approval'
+      ];
+      
+      return request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(allowedFields);
+    }
+
+    // =========================================================
+    // FAQ
+    // =========================================================
+    match /faq/{faqId} {
+      allow get, list: if isAuthenticated();
+      allow create, update, delete: if isSuperAdmin();
+    }
+
+    // =========================================================
+    // CHAT ROOMS
+    // =========================================================
+    match /chat_rooms/{chatRoomId} {
+      allow get: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid || isAdminOrAbove()
+      );
+      allow list: if isAuthenticated() && (
+        isAdminOrAbove() || resource.data.userId == request.auth.uid
+      );
+      allow create: if isAuthenticated() && (
+        request.resource.data.userId == request.auth.uid || isAdminOrAbove()
+      );
+      allow update: if isAuthenticated() && (
+        (resource.data.userId == request.auth.uid) || isAdminOrAbove()
+      );
+      allow delete: if isSuperAdmin();
+
+      match /messages/{messageId} {
+        allow get: if isAuthenticated() && (
+          resource.data.senderId == request.auth.uid || isAdminOrAbove() ||
+          exists(/databases/$(database)/documents/chat_rooms/$(chatRoomId)) &&
+          get(/databases/$(database)/documents/chat_rooms/$(chatRoomId)).data.userId == request.auth.uid
+        );
+        allow list: if isAuthenticated() && (
+          isAdminOrAbove() ||
+          (exists(/databases/$(database)/documents/chat_rooms/$(chatRoomId)) &&
+           get(/databases/$(database)/documents/chat_rooms/$(chatRoomId)).data.userId == request.auth.uid)
+        );
+        allow create: if isAuthenticated() && (
+          request.resource.data.senderId == request.auth.uid ||
+          (isAdminOrAbove() && request.resource.data.senderId == 'system')
+        );
+        allow update: if isAuthenticated() && (
+          isAdminOrAbove() ||
+          (exists(/databases/$(database)/documents/chat_rooms/$(chatRoomId)) &&
+           get(/databases/$(database)/documents/chat_rooms/$(chatRoomId)).data.userId == request.auth.uid)
+        );
+        allow delete: if isSuperAdmin();
+      }
+    }
+
+    // =========================================================
+    // NOTIFICATIONS
+    // =========================================================
+    match /notifications/{docId} {
+      allow get: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid || isAdminOrAbove()
+      );
+      allow list: if isAuthenticated();
+      allow create: if isAuthenticated() && (
+        isAdminOrAbove() || request.resource.data.userId == request.auth.uid
+      );
+      allow update: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid || isAdminOrAbove()
+      );
+      allow delete: if isSuperAdmin() || (
+        isAuthenticated() && resource.data.userId == request.auth.uid
+      );
+    }
+
+    // =========================================================
+    // PHONE MAPPINGS
+    // =========================================================
+    match /phone_mappings/{phone} {
+      allow get: if true;
+      allow list: if isAuthenticated();
+      allow create: if isAuthenticated() && (
+        (request.resource.data.user_id == request.auth.uid) ||
+        isSuperAdmin() || isManager()
+      );
+      allow update: if isSuperAdmin() || isManager();
+      allow delete: if isSuperAdmin();
     }
 
     // =========================================================
@@ -110,8 +271,12 @@ service cloud.firestore {
     match /online_users/{userId} {
       allow get: if isAuthenticated();
       allow list: if isAuthenticated();
-      allow create: if isAuthenticated() && request.auth.uid == userId;
-      allow update: if isAuthenticated() && (request.auth.uid == userId || isSuperAdmin());
+      allow create: if isAuthenticated() && (
+        request.auth.uid == userId || isSuperAdmin()
+      );
+      allow update: if isAuthenticated() && (
+        request.auth.uid == userId || isSuperAdmin()
+      );
       allow delete: if isSuperAdmin();
     }
 
@@ -122,8 +287,15 @@ service cloud.firestore {
       allow create: if isAuthenticated() && (
         (request.auth.uid == userId &&
          request.resource.data.role == 'mitra' &&
-         isValidEmail(request.resource.data.email))
-        || (isSuperAdmin() && isValidRole(request.resource.data.role))
+         isValidEmail(request.resource.data.email) &&
+         isValidFungsi(request.resource.data.fungsi) &&
+         request.resource.data.status_akun == 'active')
+        || ((isSuperAdmin() || isManager()) &&
+            isValidRole(request.resource.data.role) &&
+            (request.resource.data.role == 'officer_safety' || 
+             request.resource.data.role == 'manager_hsse' || 
+             isValidFungsi(request.resource.data.fungsi)) &&
+            isValidStatusAkun(request.resource.data.status_akun))
       );
 
       allow get: if isAuthenticated();
@@ -131,8 +303,24 @@ service cloud.firestore {
 
       allow update: if isAuthenticated() && (
         isSuperAdmin()
-        || (isManager() && getTargetUserRole(userId) != 'superadmin')
-        || request.auth.uid == userId
+        || (isManager() && 
+            getTargetUserRole(userId) != 'superadmin' &&
+            getTargetUserRole(userId) != 'officer_safety' &&
+            getTargetUserRole(userId) != 'manager_hsse')
+        || (isOfficerSafety() && request.auth.uid == userId)
+        || (request.auth.uid == userId && 
+            request.resource.data.diff(resource.data).affectedKeys()
+                .hasOnly([
+                  'nama_lengkap', 'phone', 'phone_hash', 'email', 'email_hash',
+                  'fungsi', 'fungsi_label', 'isOnline', 'is_online',
+                  'last_seen', 'last_login', 'last_active',
+                  'login_attempts', 'last_failed_login', 'account_locked',
+                  'is_verified', 'terms_accepted', 'terms_accepted_at', 'terms_version',
+                  'updated_at', 'audit_trail', 'security', 'photo_url', 'avatar',
+                  'officer_safety_level', 'officer_safety_department',
+                  'officer_safety_authority', 'officer_safety_certification',
+                  'officer_safety_license_number', 'officer_safety_joined_date'
+                ]))
       );
 
       allow delete: if isSuperAdmin() && userId != request.auth.uid;
@@ -142,8 +330,16 @@ service cloud.firestore {
     // LOCATIONS
     // =========================================================
     match /locations/{locationId} {
-      allow get, list: if isAdminOrAbove();
+      allow get, list: if isAuthenticated();
       allow create, update, delete: if isSuperAdmin();
+    }
+
+    // =========================================================
+    // PROJECT LOCATIONS
+    // =========================================================
+    match /project_locations/{locationId} {
+      allow get, list: if isAuthenticated();
+      allow create, update, delete: if isSuperAdmin() || isManager();
     }
 
     // =========================================================
@@ -163,9 +359,9 @@ service cloud.firestore {
     }
 
     // =========================================================
-    // FAQ
+    // OVERTIME RATES
     // =========================================================
-    match /faq/{faqId} {
+    match /overtime_rates/{docId} {
       allow get, list: if isAuthenticated();
       allow create, update, delete: if isSuperAdmin();
     }
@@ -175,17 +371,19 @@ service cloud.firestore {
     // =========================================================
     match /mail/{mailId} {
       allow create: if canManageUsers();
-      allow get, list: if isSuperAdmin();
+      allow get, list: if isSuperAdmin() || isAnyHSSEManager() || isOfficerSafety();
       allow update, delete: if isSuperAdmin();
     }
 
     // =========================================================
-    // PENGAJUAN LEMBUR
+    // 🔥🔥🔥 PENGAJUAN LEMBUR 🔥🔥🔥
     // =========================================================
     match /pengajuan_lembur/{pengajuanId} {
       allow get: if isAuthenticated() && (
         isSuperAdmin()
+        || isAnyHSSEManager()
         || (isManager() && resource.data.pengawas_fungsi == getCurrentUserFungsi())
+        || (isOfficerSafety() && resource.data.requires_hsse_approval == true)
         || (isPengawas() && resource.data.pengawas_id == request.auth.uid)
         || (isMitra() && request.auth.uid in resource.data.mitra_ids)
       );
@@ -200,7 +398,11 @@ service cloud.firestore {
 
       allow update: if isAuthenticated() && (
         isSuperAdmin()
+        || isAnyHSSEManager()
         || (isManager() && resource.data.pengawas_fungsi == getCurrentUserFungsi())
+        || (isOfficerSafety() && 
+            resource.data.requires_hsse_approval == true &&
+            resource.data.status == 'pending_hsse')
         || (isPengawas() && resource.data.pengawas_id == request.auth.uid && resource.data.status == 'pending')
       );
 
@@ -208,46 +410,55 @@ service cloud.firestore {
     }
 
     // =========================================================
-    // LEMBUR MITRA (✅ DIPERBAIKI - FIELD-LEVEL SECURITY UNTUK MITRA)
+    // 🔥🔥🔥 LEMBUR MITRA - SUPER COMPLETE FIX! 🔥🔥🔥
     // =========================================================
     match /lembur_mitra/{lemburId} {
+      // READ: Semua user yang terkait bisa baca
       allow get: if isAuthenticated() && (
         isSuperAdmin()
+        || isAnyHSSEManager()
         || (isManager() && resource.data.pengawas_fungsi == getCurrentUserFungsi())
+        || (isOfficerSafety())
         || (isPengawas() && resource.data.diajukan_oleh_id == request.auth.uid)
         || (isMitra() && resource.data.mitra_id == request.auth.uid)
+        || (isMitra() && request.auth.uid in resource.data.mitra_ids)  // 🔥 Multi-mitra
       );
 
       allow list: if isAuthenticated();
 
+      // CREATE: Hanya pengawas yang bisa buat
       allow create: if isAuthenticated() && (
         isPengawas() &&
         request.resource.data.diajukan_oleh_id == request.auth.uid &&
         isValidLemburData()
       );
 
-      // ✅ UPDATE: Mitra hanya boleh mengubah field-field absensi & hasil akhir
+      // 🔥🔥🔥 UPDATE: SUPER COMPLETE FIX! 🔥🔥🔥
       allow update: if isAuthenticated() && (
+        // Full access
         isSuperAdmin()
-        || isManager()
-        || (isPengawas() && resource.data.diajukan_oleh_id == request.auth.uid)
-        || (isMitra() && resource.data.mitra_id == request.auth.uid
-            && request.resource.data.diff(resource.data).affectedKeys()
-                .hasOnly([
-                  'absensi_status',
-                  'absensi_waktu',
-                  'absensi_checkout_waktu',
-                  'absensi_oleh',
-                  'absensi_nama',
-                  'status',
-                  'actual_total_jam',
-                  'actual_income',
-                  'income_amount',
-                  'is_income_calculated',
-                  'updated_at',
-                  'completed_at'
-                ])
-        )
+        || isAnyHSSEManager()
+        
+        // Manager can update own fungsi's lembur
+        || (isManager() && resource.data.pengawas_fungsi == getCurrentUserFungsi())
+        
+        // Officer safety for HSSE approval
+        || (isOfficerSafety() && resource.data.requires_hsse_approval == true)
+        
+        // 🔥 Pengawas: Update dengan whitelist field
+        || (isPengawas() && 
+            resource.data.diajukan_oleh_id == request.auth.uid && 
+            isPengawasUpdate())
+        
+        // 🔥🔥🔥 MITRA: Update absensi & konfirmasi keterlambatan (FIXED!) 🔥🔥🔥
+        || (isMitra() && 
+            resource.data.mitra_id == request.auth.uid && 
+            isMitraAbsensiUpdate())
+        
+        // 🔥 Mitra multi-IDs (untuk lembur group)
+        || (isMitra() && 
+            request.auth.uid in resource.data.mitra_ids && 
+            isMitraAbsensiUpdate())
       );
 
       allow delete: if isSuperAdmin();
@@ -258,8 +469,12 @@ service cloud.firestore {
     // =========================================================
     match /absensi/{absensiId} {
       allow get, list: if isAuthenticated();
-      allow create: if isPengawas() || isMitra();
-      allow update: if request.auth.uid == resource.data.user_id;
+      allow create: if isAuthenticated() && (
+        isPengawas() || isMitra() || isAdminOrAbove()
+      );
+      allow update: if isAuthenticated() && (
+        request.auth.uid == resource.data.user_id || isAdminOrAbove()
+      );
       allow delete: if isSuperAdmin();
     }
 
@@ -285,10 +500,28 @@ service cloud.firestore {
     }
 
     // =========================================================
+    // SYSTEM LOGS
+    // =========================================================
+    match /system_logs/{logId} {
+      allow get, list: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update, delete: if isSuperAdmin();
+    }
+
+    // =========================================================
+    // ACTIVITY LOGS
+    // =========================================================
+    match /activity_logs/{logId} {
+      allow get, list: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update, delete: if isSuperAdmin();
+    }
+
+    // =========================================================
     // ABSENSI LOGS
     // =========================================================
     match /absensi_logs/{logId} {
-      allow get, list: if isAuthenticated() && (isSuperAdmin() || isManager() || isPengawas());
+      allow get, list: if isAuthenticated() && isAdminOrAbove();
       allow create: if isAuthenticated();
       allow update, delete: if isSuperAdmin();
     }
@@ -297,20 +530,9 @@ service cloud.firestore {
     // LOG PENGAJUAN
     // =========================================================
     match /log_pengajuan/{logId} {
-      allow get, list: if isAuthenticated() && (isSuperAdmin() || isManager() || isPengawas());
+      allow get, list: if isAuthenticated() && isAdminOrAbove();
       allow create: if isAuthenticated();
       allow update, delete: if isSuperAdmin();
-    }
-
-    // =========================================================
-    // NOTIFICATIONS (FLAT COLLECTION) ✅ DIPERBAIKI
-    // =========================================================
-    match /notifications/{docId} {
-      allow get: if isAuthenticated() && resource.data.userId == request.auth.uid;
-      allow list: if isAuthenticated();
-      allow create: if isAuthenticated() && isAdminOrAbove();
-      allow update: if isAuthenticated() && resource.data.userId == request.auth.uid;
-      allow delete: if isSuperAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
     }
 
     // =========================================================
@@ -318,8 +540,8 @@ service cloud.firestore {
     // =========================================================
     match /spkl/{spklId} {
       allow get, list: if isAuthenticated();
-      allow create: if isSuperAdmin() || isManager();
-      allow update: if isSuperAdmin() || isManager();
+      allow create: if isSuperAdmin() || isManager() || isAnyHSSEManager();
+      allow update: if isSuperAdmin() || isManager() || isAnyHSSEManager() || isOfficerSafety();
       allow delete: if isSuperAdmin();
     }
 
@@ -328,7 +550,7 @@ service cloud.firestore {
     // =========================================================
     match /spkl_local/{spklId} {
       allow get, list: if isAuthenticated();
-      allow create, update: if isSuperAdmin() || isManager();
+      allow create, update: if isSuperAdmin() || isManager() || isAnyHSSEManager();
       allow delete: if isSuperAdmin();
     }
 
@@ -336,8 +558,19 @@ service cloud.firestore {
     // APPROVAL LOGS
     // =========================================================
     match /approval_logs/{logId} {
-      allow get, list: if isSuperAdmin() || isManager();
+      allow get, list: if isAdminOrAbove() || isOfficerSafety();
       allow create: if isAuthenticated();
+      allow update, delete: if isSuperAdmin();
+    }
+
+    // =========================================================
+    // RISK APPROVAL LOGS
+    // =========================================================
+    match /risk_approval_logs/{logId} {
+      allow get, list: if isAdminOrAbove() || isOfficerSafety();
+      allow create: if isAuthenticated() && (
+        isSuperAdmin() || isManager() || isAnyHSSEManager() || isOfficerSafety()
+      );
       allow update, delete: if isSuperAdmin();
     }
 
@@ -345,7 +578,7 @@ service cloud.firestore {
     // NOTIFICATIONS LOG
     // =========================================================
     match /notifications_log/{logId} {
-      allow get, list: if isSuperAdmin() || isManager();
+      allow get, list: if isAdminOrAbove();
       allow create: if isAuthenticated();
       allow update, delete: if isSuperAdmin();
     }
@@ -355,21 +588,21 @@ service cloud.firestore {
     // =========================================================
     match /lembur_schedules/{scheduleId} {
       allow get, list: if isAuthenticated();
-      allow create: if isSuperAdmin() || isManager();
-      allow update: if isSuperAdmin() || isManager();
+      allow create: if isSuperAdmin() || isManager() || isAnyHSSEManager();
+      allow update: if isSuperAdmin() || isManager() || isAnyHSSEManager();
       allow delete: if isSuperAdmin();
     }
 
     match /lembur_schedules/{scheduleId}/mitra/{mitraId} {
       allow get, list: if isAuthenticated();
-      allow create: if isSuperAdmin() || isManager();
-      allow update: if isSuperAdmin() || isManager();
+      allow create: if isSuperAdmin() || isManager() || isAnyHSSEManager();
+      allow update: if isSuperAdmin() || isManager() || isAnyHSSEManager();
       allow delete: if isSuperAdmin();
     }
 
     match /users/{userId}/lembur_schedules/{scheduleId} {
       allow get, list: if request.auth.uid == userId;
-      allow create, update: if isSuperAdmin() || isManager();
+      allow create, update: if isSuperAdmin() || isManager() || isAnyHSSEManager();
       allow delete: if isSuperAdmin();
     }
 
@@ -377,19 +610,10 @@ service cloud.firestore {
     // REMINDERS
     // =========================================================
     match /reminders/{reminderId} {
-      allow get, list: if isSuperAdmin() || isManager();
+      allow get, list: if isAdminOrAbove();
       allow create: if isAuthenticated();
-      allow update: if isSuperAdmin() || isManager();
+      allow update: if isAdminOrAbove();
       allow delete: if isSuperAdmin();
-    }
-
-    // =========================================================
-    // SYSTEM LOGS
-    // =========================================================
-    match /system_logs/{logId} {
-      allow create: if isAuthenticated();
-      allow get, list: if isSuperAdmin() || isManager();
-      allow update, delete: if false;
     }
 
     // =========================================================
@@ -404,7 +628,7 @@ service cloud.firestore {
     // DASHBOARD CONFIG
     // =========================================================
     match /dashboard_config/{docId} {
-      allow get, list: if isAdminOrAbove();
+      allow get, list: if isAuthenticated();
       allow create, update, delete: if isSuperAdmin();
     }
 
@@ -425,23 +649,12 @@ service cloud.firestore {
     }
 
     // =========================================================
-    // ACTIVITY LOGS
-    // =========================================================
-    match /activity_logs/{logId} {
-      allow create: if isAuthenticated();
-      allow get, list: if isSuperAdmin() || isManager();
-      allow update, delete: if false;
-    }
-
-    // =========================================================
-    // MITRA CONFIRMATIONS (✅ TAMBAHAN UNTUK KONFIRMASI OVERTIME)
+    // MITRA CONFIRMATIONS
     // =========================================================
     match /mitra_confirmations/{userId} {
       allow get: if isAuthenticated() && (
-        isSuperAdmin()
-        || isManager()
-        || isPengawas()
-        || request.auth.uid == userId
+        isSuperAdmin() || isManager() || isAnyHSSEManager() ||
+        isOfficerSafety() || isPengawas() || request.auth.uid == userId
       );
       allow list: if isAuthenticated() && isAdminOrAbove();
       allow create: if isAuthenticated() && request.auth.uid == userId;
@@ -450,10 +663,27 @@ service cloud.firestore {
     }
 
     // =========================================================
-    // DEFAULT BLOCK
+    // DELETED USERS
+    // =========================================================
+    match /deleted_users/{userId} {
+      allow get, list: if isSuperAdmin() || isAnyHSSEManager() || isOfficerSafety();
+      allow create: if isSuperAdmin();
+      allow update, delete: if isSuperAdmin();
+    }
+
+    // =========================================================
+    // MASTER DATA PEKERJA
+    // =========================================================
+    match /master_workers/{workerId} {
+      allow get, list: if isAuthenticated();
+      allow create, update, delete: if isSuperAdmin();
+    }
+
+    // =========================================================
+    // 🔥 DEFAULT BLOCK
     // =========================================================
     match /{document=**} {
-      allow read, write: if false;
+      allow read, write: if isSuperAdmin() || isAnyHSSEManager();
     }
   }
 }

@@ -1,24 +1,36 @@
-// lib/dashboard/superadmin/superadmin_dashboard.dart
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:provider/provider.dart';
+import 'package:go_router/go_router.dart';
+
 import '/core/app_colors.dart';
 import '../../core/services/superadmin_service.dart';
-import '/widgets/stats_grid.dart';
-import '/widgets/key_metrics.dart';
-import '/widgets/analytics_section.dart';
-import '/widgets/user_distribution.dart';
-import '/widgets/quick_actions.dart';
-import '../../widgets/menu/superadmin_menu.dart';
-import '/widgets/location_monitoring.dart';
-import '/widgets/calendar_card.dart';
-import '/widgets/recent_activities.dart';
-import '/widgets/system_health.dart';
-import '/widgets/performance_metrics.dart';
 
-class SuperAdminDashboard extends StatelessWidget {
+import '../../widgets/superadmin/stats_grid.dart';
+import '../../widgets/superadmin/analytics_section.dart';
+import '../../widgets/superadmin/user_distribution.dart';
+import '../../widgets/superadmin/quick_actions.dart';
+import '../../widgets/menu/superadmin_menu.dart';
+import '../../widgets/superadmin/location_monitoring.dart';
+import '../../widgets/superadmin/recent_activities.dart';
+import '../../widgets/bottom_nav/superadmin_bottom_nav.dart';
+
+// 🔥 =============== MASTER DATA PEKERJA IMPORT ===============
+import '../superadmin/master_pekerja_screen.dart'; // Jika ada
+// ============================================================
+
+class SuperAdminDashboard extends StatefulWidget {
   const SuperAdminDashboard({super.key});
+
+  @override
+  State<SuperAdminDashboard> createState() =>
+      _SuperAdminDashboardState();
+}
+
+class _SuperAdminDashboardState
+    extends State<SuperAdminDashboard> {
+  int _currentIndex = 0;
 
   @override
   Widget build(BuildContext context) {
@@ -26,49 +38,82 @@ class SuperAdminDashboard extends StatelessWidget {
 
     return ChangeNotifierProvider(
       create: (_) => DashboardProvider(),
-      child: _DashboardBody(user: user),
+      child: _DashboardBody(
+        user: user,
+        currentIndex: _currentIndex,
+      ),
     );
   }
 }
 
 class _DashboardBody extends StatefulWidget {
   final User? user;
-  const _DashboardBody({required this.user});
+  final int currentIndex;
+
+  const _DashboardBody({
+    required this.user,
+    required this.currentIndex,
+  });
 
   @override
-  State<_DashboardBody> createState() => _DashboardBodyState();
+  State<_DashboardBody> createState() =>
+      _DashboardBodyState();
 }
 
-class _DashboardBodyState extends State<_DashboardBody>
-    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
+class _DashboardBodyState
+    extends State<_DashboardBody>
+    with
+        SingleTickerProviderStateMixin,
+        WidgetsBindingObserver {
   final _service = DashboardService();
+
   final _scrollController = ScrollController();
+
   late AnimationController _fadeController;
   late Animation<double> _fadeAnimation;
 
-  // ==================== GREETING STATE ====================
   String _greeting = 'Selamat Datang';
-  String _motivation = '';
   String _userName = '';
   String _userRole = '';
   String? _userPhotoUrl;
-  bool _isGreetingLoading = true;
 
+  bool _isGreetingLoading = true;
   bool _isRefreshing = false;
+
   String? _loadingMessage;
+
   Timer? _heartbeatTimer;
+
+  static const double sectionGap = 18;
+
+  String _getCorporateGreetingMessage() {
+    final hour = DateTime.now().hour;
+
+    if (hour >= 5 && hour < 11) {
+      return 'Semoga aktivitas operasional dan persetujuan lembur hari ini berjalan optimal dan produktif.';
+    } else if (hour >= 11 && hour < 15) {
+      return 'Pantau aktivitas sistem dan kelola persetujuan lembur secara real-time dengan efisien.';
+    } else if (hour >= 15 && hour < 18) {
+      return 'Pastikan seluruh proses operasional tetap stabil hingga akhir jam kerja.';
+    } else {
+      return 'Monitoring aktivitas lembur dan performa sistem tetap terkendali dengan baik.';
+    }
+  }
 
   @override
   void initState() {
     super.initState();
+
     _fadeController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 800),
+      duration: const Duration(milliseconds: 700),
     );
+
     _fadeAnimation = CurvedAnimation(
       parent: _fadeController,
-      curve: Curves.easeInOut,
+      curve: Curves.easeOutCubic,
     );
+
     _fadeController.forward();
 
     WidgetsBinding.instance.addObserver(this);
@@ -79,8 +124,11 @@ class _DashboardBodyState extends State<_DashboardBody>
   }
 
   Future<void> _initializeDashboard() async {
-    await _loadGreetingAndProfile();
-    await _loadDataWithMessage();
+    await Future.wait([
+      _loadGreetingAndProfile(),
+      _loadData(),
+    ]);
+
     _startHeartbeat();
   }
 
@@ -88,32 +136,42 @@ class _DashboardBodyState extends State<_DashboardBody>
     try {
       final results = await Future.wait([
         _service.getGreetingWithNameAndEmoji(),
-        _service.getGreetingMotivation(),
         _service.getCurrentUserProfile(),
       ]);
 
       final greeting = results[0] as String;
-      final motivation = results[1] as String;
-      final profile = results[2] as Map<String, dynamic>?;
+
+      final profile =
+          results[1] as Map<String, dynamic>?;
 
       if (mounted) {
         setState(() {
           _greeting = greeting;
-          _motivation = motivation;
           _isGreetingLoading = false;
 
           if (profile != null) {
-            _userName = profile['nama_lengkap']?.toString() ?? '';
-            _userRole = profile['role']?.toString() ?? '';
-            _userPhotoUrl = profile['photo_url']?.toString();
+            _userName =
+                profile['nama_lengkap']
+                        ?.toString() ??
+                    '';
+
+            _userRole =
+                profile['role']
+                        ?.toString() ??
+                    '';
+
+            _userPhotoUrl =
+                profile['photo_url']
+                    ?.toString();
           }
         });
       }
     } catch (e) {
       if (mounted) {
         setState(() {
-          _greeting = '${_service.getGreeting()}, ${widget.user?.displayName ?? widget.user?.email?.split('@')[0] ?? 'Pengguna'}! 👋';
-          _motivation = 'Semangat bekerja hari ini! 💪';
+          _greeting =
+              '${_service.getGreeting()}, ${widget.user?.displayName ?? 'Admin'} 👋';
+
           _isGreetingLoading = false;
         });
       }
@@ -122,20 +180,27 @@ class _DashboardBodyState extends State<_DashboardBody>
 
   void _startHeartbeat() {
     _heartbeatTimer?.cancel();
-    _heartbeatTimer = Timer.periodic(const Duration(seconds: 30), (_) {
-      _service.updateHeartbeat();
-    });
+
+    _heartbeatTimer = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) {
+        _service.updateHeartbeat();
+      },
+    );
   }
 
-  Future<void> _loadDataWithMessage() async {
+  Future<void> _loadData() async {
     setState(() {
-      _loadingMessage = 'Memuat data pengguna...';
+      _loadingMessage =
+          'Memuat dashboard...';
     });
 
-    final provider = context.read<DashboardProvider>();
+    final provider =
+        context.read<DashboardProvider>();
+
     await provider.loadData();
 
-    if (mounted && provider.data != null) {
+    if (mounted) {
       setState(() {
         _loadingMessage = null;
       });
@@ -145,14 +210,19 @@ class _DashboardBodyState extends State<_DashboardBody>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+
     _heartbeatTimer?.cancel();
+
     _fadeController.dispose();
+
     _scrollController.dispose();
+
     super.dispose();
   }
 
   @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
+  void didChangeAppLifecycleState(
+      AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _service.updateHeartbeat();
     }
@@ -166,20 +236,31 @@ class _DashboardBodyState extends State<_DashboardBody>
     });
 
     try {
-      final provider = context.read<DashboardProvider>();
+      final provider =
+          context.read<DashboardProvider>();
+
       provider.clearCache();
-      await provider.loadData();
-      await _loadGreetingAndProfile();
+
+      await Future.wait([
+        provider.loadData(),
+        _loadGreetingAndProfile(),
+      ]);
 
       _fadeController.reset();
       _fadeController.forward();
 
       if (mounted) {
-        _showSnackBar('✅ Data berhasil diperbarui', success: true);
+        _showSnackBar(
+          'Dashboard berhasil diperbarui',
+          success: true,
+        );
       }
     } catch (e) {
       if (mounted) {
-        _showSnackBar('❌ Gagal memperbarui data: ${e.toString()}', success: false);
+        _showSnackBar(
+          'Gagal memperbarui dashboard',
+          success: false,
+        );
       }
     } finally {
       if (mounted) {
@@ -190,1006 +271,1110 @@ class _DashboardBodyState extends State<_DashboardBody>
     }
   }
 
-  void _showSnackBar(String message, {bool success = true}) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).clearSnackBars();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            Icon(
-              success ? Icons.check_circle_outline : Icons.error_outline,
-              color: Colors.white,
-              size: 20,
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                message,
-                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+  void _showSnackBar(
+    String message, {
+    bool success = true,
+  }) {
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(
+        SnackBar(
+          behavior:
+              SnackBarBehavior.floating,
+
+          margin: EdgeInsets.only(
+            left: 14,
+            right: 14,
+            bottom:
+                MediaQuery.of(context)
+                        .size
+                        .height *
+                    0.1,
+          ),
+
+          shape: RoundedRectangleBorder(
+            borderRadius:
+                BorderRadius.circular(14),
+          ),
+
+          backgroundColor: success
+              ? const Color(0xFF2E7D32)
+              : const Color(0xFFC62828),
+
+          content: Row(
+            children: [
+              Icon(
+                success
+                    ? Icons
+                        .check_circle_rounded
+                    : Icons.error_rounded,
+                color: Colors.white,
+                size: 18,
               ),
-            ),
-          ],
+
+              const SizedBox(width: 10),
+
+              Expanded(
+                child: Text(
+                  message,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight:
+                        FontWeight.w500,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
-        backgroundColor: success ? const Color(0xFF2E7D32) : const Color(0xFFC62828),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        margin: const EdgeInsets.all(12),
-        duration: const Duration(seconds: 3),
-        action: SnackBarAction(
-          label: 'OK',
-          textColor: Colors.white,
-          onPressed: () {},
-        ),
-      ),
-    );
+      );
   }
 
   @override
   Widget build(BuildContext context) {
-    final provider = context.watch<DashboardProvider>();
-    final size = MediaQuery.of(context).size;
-    final isTablet = size.width > 600;
-    final isDesktop = size.width > 900;
+    final provider =
+        context.watch<DashboardProvider>();
 
-    if (provider.isLoading || _isGreetingLoading) {
-      return _buildLoadingScreen(provider.errorMessage);
+    final width =
+        MediaQuery.of(context).size.width;
+
+    final useHorizontalLayout =
+        width >= 850;
+
+    if (provider.isLoading ||
+        _isGreetingLoading) {
+      return Scaffold(
+        backgroundColor:
+            const Color(0xFFF5F7FB),
+
+        bottomNavigationBar:
+            SuperAdminBottomNav(
+          currentIndex:
+              widget.currentIndex,
+        ),
+
+        body: _buildLoadingScreen(),
+      );
     }
 
     if (provider.data == null) {
-      return _buildErrorScreen(provider.errorMessage);
+      return Scaffold(
+        backgroundColor:
+            const Color(0xFFF5F7FB),
+
+        bottomNavigationBar:
+            SuperAdminBottomNav(
+          currentIndex:
+              widget.currentIndex,
+        ),
+
+        body: _buildErrorScreen(
+          provider.errorMessage,
+        ),
+      );
     }
 
     final data = provider.data!;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
-      extendBodyBehindAppBar: true,
-      floatingActionButton: _buildFloatingActionButton(),
-      body: RefreshIndicator(
-        onRefresh: _refreshData,
-        color: AppColors.primaryBlue,
-        backgroundColor: Colors.white,
-        strokeWidth: 3,
-        displacement: 10,
-        child: CustomScrollView(
-          controller: _scrollController,
-          physics: const AlwaysScrollableScrollPhysics(
-            parent: BouncingScrollPhysics(),
-          ),
-          slivers: [
-            _buildSliverAppBar(),
-            _buildContentSliver(data, size, isTablet, isDesktop),
-          ],
-        ),
-      ),
-    );
-  }
+      backgroundColor:
+          const Color(0xFFF5F7FB),
 
-  // ==================== LOADING SCREEN ====================
-  Widget _buildLoadingScreen(String? errorMessage) {
-    return Scaffold(
-      backgroundColor: AppColors.primaryBlue,
-      body: Stack(
-        children: [
-          Positioned(
-            top: -100,
-            right: -100,
-            child: Container(
-              width: 300,
-              height: 300,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.white.withAlpha(13),
-              ),
-            ),
-          ),
-          Positioned(
-            bottom: -50,
-            left: -50,
-            child: Container(
-              width: 200,
-              height: 200,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.white.withAlpha(13),
-              ),
-            ),
-          ),
-          Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                TweenAnimationBuilder<double>(
-                  tween: Tween<double>(begin: 0.5, end: 1.0),
-                  duration: const Duration(milliseconds: 1200),
-                  curve: Curves.elasticOut,
-                  builder: (context, value, child) {
-                    return Transform.scale(
-                      scale: value,
-                      child: Container(
-                        width: 130,
-                        height: 130,
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.white.withAlpha(77),
-                              blurRadius: 40,
-                              spreadRadius: 5,
-                            ),
-                          ],
-                        ),
-                        child: const Icon(
-                          Icons.admin_panel_settings_rounded,
-                          size: 65,
-                          color: AppColors.primaryBlue,
-                        ),
-                      ),
-                    );
-                  },
-                ),
-                const SizedBox(height: 36),
-                const Text(
-                  'SUPER ADMIN',
-                  style: TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                    letterSpacing: 3,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'DASHBOARD',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w300,
-                    color: Colors.white70,
-                    letterSpacing: 6,
-                  ),
-                ),
-                const SizedBox(height: 40),
-                SizedBox(
-                  width: 32,
-                  height: 32,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 3,
-                    valueColor: AlwaysStoppedAnimation<Color>(
-                      Colors.white.withAlpha(204),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 20),
-                if (_loadingMessage != null)
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withAlpha(26),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      _loadingMessage!,
-                      style: const TextStyle(color: Colors.white, fontSize: 13),
-                    ),
-                  )
-                else if (errorMessage != null)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 40),
-                    child: Text(
-                      errorMessage,
-                      style: const TextStyle(color: Colors.white70, fontSize: 12),
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ],
+      bottomNavigationBar:
+          SuperAdminBottomNav(
+        currentIndex:
+            widget.currentIndex,
       ),
-    );
-  }
 
-  // ==================== ERROR SCREEN ====================
-  Widget _buildErrorScreen(String? errorMessage) {
-    return Scaffold(
-      backgroundColor: AppColors.primaryBlue,
       body: SafeArea(
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(32),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Container(
-                  width: 100,
-                  height: 100,
-                  decoration: BoxDecoration(
-                    color: Colors.white.withAlpha(26),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.wifi_off_rounded,
-                    size: 50,
-                    color: Colors.white,
-                  ),
-                ),
-                const SizedBox(height: 24),
-                const Text(
-                  'Gagal Memuat Data',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  errorMessage ?? 'Terjadi kesalahan yang tidak diketahui.\nSilakan coba lagi.',
-                  style: const TextStyle(color: Colors.white70, fontSize: 13, height: 1.5),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 32),
-                ElevatedButton.icon(
-                  onPressed: () {
-                    final provider = context.read<DashboardProvider>();
-                    provider.clearCache();
-                    provider.loadData();
-                    _loadGreetingAndProfile();
-                  },
-                  icon: const Icon(Icons.refresh_rounded),
-                  label: const Text('Coba Lagi'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.white,
-                    foregroundColor: AppColors.primaryBlue,
-                    padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(30),
-                    ),
-                    elevation: 4,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                TextButton(
-                  onPressed: _logout,
-                  child: const Text(
-                    'Kembali ke Login',
-                    style: TextStyle(color: Colors.white70),
-                  ),
-                ),
-              ],
-            ),
+        child: RefreshIndicator(
+          onRefresh: _refreshData,
+          color: AppColors.primaryBlue,
+          backgroundColor: Colors.white,
+          strokeWidth: 3,
+
+          child: CustomScrollView(
+            controller:
+                _scrollController,
+
+            keyboardDismissBehavior:
+                ScrollViewKeyboardDismissBehavior
+                    .onDrag,
+
+            physics:
+                const BouncingScrollPhysics(),
+
+            slivers: [
+              _buildContent(
+                data,
+                useHorizontalLayout,
+              ),
+            ],
           ),
         ),
       ),
     );
   }
 
-  // ==================== FLOATING ACTION BUTTON ====================
-  Widget _buildFloatingActionButton() {
-    return FloatingActionButton(
-      onPressed: () => _showQuickActionsMenu(context),
-      backgroundColor: AppColors.accentOrange,
-      elevation: 8,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: const Icon(Icons.bolt_rounded, color: Colors.white, size: 28),
-    );
-  }
-
-  // ==================== CONTENT SLIVER ====================
-  Widget _buildContentSliver(DashboardData data, Size size, bool isTablet, bool isDesktop) {
+  Widget _buildContent(
+    DashboardData data,
+    bool useHorizontalLayout,
+  ) {
     return SliverPadding(
-      padding: EdgeInsets.all(isDesktop ? 24 : 16),
+      padding:
+          const EdgeInsets.fromLTRB(
+        14,
+        14,
+        14,
+        100,
+      ),
+
       sliver: SliverList(
-        delegate: SliverChildListDelegate([
-          // ========== WELCOME CARD (PERSONAL GREETING) ==========
-          FadeTransition(
-            opacity: _fadeAnimation,
-            child: _buildPersonalWelcomeCard(),
-          ),
-          const SizedBox(height: 16),
-
-          // ========== STATS GRID (NO PARAMS NEEDED!) ==========
-          SlideTransition(
-            position: Tween<Offset>(
-              begin: const Offset(0, 0.1),
-              end: Offset.zero,
-            ).animate(_fadeAnimation),
-            child: const StatsGrid(), // 🔥 TINGGAL PANGGIL DOANG!
-          ),
-          const SizedBox(height: 16),
-
-          // ========== KEY METRICS ==========
-          KeyMetrics(
-            newUsersToday: data.newUsersToday,
-            lockedAccounts: data.lockedAccounts,
-            totalOvertime: data.totalOvertime,
-            formatNumber: _service.formatNumber,
-          ),
-          const SizedBox(height: 16),
-
-          // ========== ANALYTICS ==========
-          AnalyticsSection(data: data),
-          const SizedBox(height: 16),
-
-          // ========== USER DISTRIBUTION + QUICK ACTIONS ==========
-          if (isTablet)
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  flex: 6,
-                  child: UserDistribution(
-                    distribution: data.roleDistribution,
-                    verifiedUsers: data.verifiedUsers,
-                    lockedAccounts: data.lockedAccounts,
-                    activeToday: data.activeToday,
-                    getRoleColor: _service.getRoleColor,
-                  ),
-                ),
-                const SizedBox(width: 16),
-                const Expanded(flex: 4, child: QuickActions()),
-              ],
-            )
-          else ...[
-            UserDistribution(
-              distribution: data.roleDistribution,
-              verifiedUsers: data.verifiedUsers,
-              lockedAccounts: data.lockedAccounts,
-              activeToday: data.activeToday,
-              getRoleColor: _service.getRoleColor,
+        delegate:
+            SliverChildListDelegate(
+          [
+            FadeTransition(
+              opacity: _fadeAnimation,
+              child: _buildHeaderCard(),
             ),
-            const SizedBox(height: 16),
-            const QuickActions(),
+
+            const SizedBox(
+                height: sectionGap),
+
+            SlideTransition(
+              position:
+                  Tween<Offset>(
+                begin:
+                    const Offset(0, 0.08),
+                end: Offset.zero,
+              ).animate(_fadeAnimation),
+
+              child: const StatsGrid(),
+            ),
+
+            const SizedBox(
+                height: sectionGap),
+
+            // 🔥 =============== MASTER DATA PEKERJA QUICK STATS ===============
+            // Stats ringkas sebelum analytics
+            _buildMasterDataQuickStats(data),
+            
+            const SizedBox(
+                height: sectionGap),
+            // ================================================================
+
+            AnalyticsSection(data: data),
+
+            const SizedBox(
+                height: sectionGap),
+
+            if (useHorizontalLayout)
+              Row(
+                crossAxisAlignment:
+                    CrossAxisAlignment
+                        .start,
+                children: [
+                  Expanded(
+                    flex: 6,
+                    child:
+                        UserDistribution(
+                      distribution: data
+                          .roleDistribution,
+
+                      verifiedUsers:
+                          data
+                              .verifiedUsers,
+
+                      lockedAccounts:
+                          data
+                              .lockedAccounts,
+
+                      activeToday:
+                          data.activeToday,
+
+                      getRoleColor:
+                          _service
+                              .getRoleColor,
+                    ),
+                  ),
+
+                  const SizedBox(
+                      width: 16),
+
+                  const Expanded(
+                    flex: 4,
+                    child:
+                        QuickActions(),
+                  ),
+                ],
+              )
+            else ...[
+              UserDistribution(
+                distribution:
+                    data.roleDistribution,
+
+                verifiedUsers:
+                    data.verifiedUsers,
+
+                lockedAccounts:
+                    data.lockedAccounts,
+
+                activeToday:
+                    data.activeToday,
+
+                getRoleColor:
+                    _service.getRoleColor,
+              ),
+
+              const SizedBox(
+                  height: sectionGap),
+
+              const QuickActions(),
+            ],
+
+            const SizedBox(
+                height: sectionGap),
+
+            AdminMenu(
+              data: data,
+              service: _service,
+            ),
+
+            const SizedBox(
+                height: sectionGap),
+
+            LocationMonitoring(
+              service: _service,
+            ),
+
+            const SizedBox(
+                height: sectionGap),
+
+            RecentActivities(
+              activities:
+                  data.recentActivities,
+              service: _service,
+            ),
+
+            const SizedBox(height: 30),
           ],
-          const SizedBox(height: 16),
-
-          // ========== ADMIN MENU ==========
-          AdminMenu(data: data, service: _service),
-          const SizedBox(height: 16),
-
-          // ========== LOCATION MONITORING ==========
-          LocationMonitoring(service: _service),
-          const SizedBox(height: 16),
-
-          // ========== CALENDAR + OVERTIME ==========
-          if (isTablet)
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Expanded(flex: 5, child: CalendarCard()),
-              ],
-            )
-          else ...[
-            const CalendarCard(),
-          ],
-          const SizedBox(height: 16),
-
-          // ========== RECENT ACTIVITIES ==========
-          RecentActivities(
-            activities: data.recentActivities,
-            service: _service,
-          ),
-          const SizedBox(height: 16),
-
-          // ========== SYSTEM HEALTH ==========
-          SystemHealthWidget(
-            accentColor: AppColors.primaryBlue,
-            getTimeAgo: _service.getTimeAgo,
-          ),
-          const SizedBox(height: 16),
-
-          // ========== PERFORMANCE METRICS ==========
-          const PerformanceMetrics(),
-          const SizedBox(height: 24),
-
-          // ========== LOGOUT BUTTON ==========
-          _buildLogoutButton(),
-          const SizedBox(height: 32),
-        ]),
+        ),
       ),
     );
   }
 
-  // ==================== PERSONAL WELCOME CARD ====================
-  Widget _buildPersonalWelcomeCard() {
+  // 🔥 =============== MASTER DATA QUICK STATS WIDGET ===============
+  Widget _buildMasterDataQuickStats(DashboardData data) {
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF1E3C72), Color(0xFF2A5298)],
+        gradient: LinearGradient(
+          colors: [
+            const Color(0xFF2E7D32).withAlpha(230),
+            const Color(0xFF1B5E20),
+          ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF1E3C72).withAlpha(77),
-            blurRadius: 20,
-            offset: const Offset(0, 8),
+            color: const Color(0xFF2E7D32).withAlpha(60),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
           ),
         ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Header
           Row(
             children: [
               Container(
-                width: 56,
-                height: 56,
+                padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white, width: 2),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withAlpha(51),
-                      blurRadius: 8,
-                    ),
-                  ],
+                  color: Colors.white.withAlpha(30),
+                  borderRadius: BorderRadius.circular(10),
                 ),
-                child: CircleAvatar(
-                  radius: 28,
-                  backgroundColor: Colors.white,
-                  backgroundImage: _userPhotoUrl != null && _userPhotoUrl!.isNotEmpty
-                      ? NetworkImage(_userPhotoUrl!)
-                      : null,
-                  child: _userPhotoUrl == null || _userPhotoUrl!.isEmpty
-                      ? Text(
-                          _userName.isNotEmpty ? _userName[0].toUpperCase() : 'A',
-                          style: const TextStyle(
-                            fontSize: 24,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF1E3C72),
-                          ),
-                        )
-                      : null,
+                child: const Icon(
+                  Icons.badge_rounded,
+                  color: Colors.white,
+                  size: 20,
                 ),
               ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      _greeting,
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                        height: 1.3,
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Text(
+                  'Master Data Pekerja',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+              // 🔥 Quick action button
+              GestureDetector(
+                onTap: () => context.push('/superadmin/master-pekerja'),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withAlpha(30),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'Kelola',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      _motivation,
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: Colors.white.withAlpha(204),
-                        fontStyle: FontStyle.italic,
-                      ),
-                    ),
-                  ],
+                      SizedBox(width: 4),
+                      Icon(Icons.arrow_forward_rounded, color: Colors.white, size: 14),
+                    ],
+                  ),
                 ),
               ),
             ],
           ),
+          
           const SizedBox(height: 16),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            decoration: BoxDecoration(
-              color: Colors.white.withAlpha(26),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.shield_rounded, color: Colors.white70, size: 16),
-                const SizedBox(width: 6),
-                Text(
-                  'Role: ${_userRole.isNotEmpty ? _userRole.toUpperCase() : 'SUPERADMIN'}',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.white,
-                    letterSpacing: 0.5,
-                  ),
+          
+          // Stats Row
+          Row(
+            children: [
+              // Total Workers
+              Expanded(
+                child: _buildMasterDataStatItem(
+                  icon: Icons.people_rounded,
+                  label: 'Total Pekerja',
+                  value: '${data.totalWorkers}',
+                  valueColor: Colors.white,
                 ),
-                const SizedBox(width: 12),
-                Container(width: 1, height: 16, color: Colors.white30),
-                const SizedBox(width: 12),
-                const Icon(Icons.calendar_today_rounded, color: Colors.white70, size: 14),
-                const SizedBox(width: 6),
-                Text(
-                  _formatDate(DateTime.now()),
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Colors.white70,
-                  ),
+              ),
+              Container(
+                width: 1,
+                height: 40,
+                color: Colors.white24,
+                margin: const EdgeInsets.symmetric(horizontal: 8),
+              ),
+              // Active Workers
+              Expanded(
+                child: _buildMasterDataStatItem(
+                  icon: Icons.check_circle_rounded,
+                  label: 'Aktif',
+                  value: '${data.activeWorkers}',
+                  valueColor: const Color(0xFFA5D6A7),
                 ),
-              ],
-            ),
+              ),
+              Container(
+                width: 1,
+                height: 40,
+                color: Colors.white24,
+                margin: const EdgeInsets.symmetric(horizontal: 8),
+              ),
+              // By Fungsi
+              Expanded(
+                child: _buildMasterDataStatItem(
+                  icon: Icons.work_rounded,
+                  label: 'Fungsi',
+                  value: '${data.workerFungsiCount}',
+                  valueColor: const Color(0xFFFFF9C4),
+                ),
+              ),
+            ],
           ),
+          
+          const SizedBox(height: 14),
+          
         ],
       ),
     );
   }
 
-  String _formatDate(DateTime date) {
-    const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun',
-      'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'
-    ];
-    const days = ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'];
-    return '${days[date.weekday - 1]}, ${date.day} ${months[date.month - 1]} ${date.year}';
-  }
-
-  // ==================== SLIVER APP BAR ====================
-  Widget _buildSliverAppBar() {
-    return SliverAppBar(
-      expandedHeight: 130,
-      floating: true,
-      pinned: true,
-      snap: true,
-      backgroundColor: Colors.transparent,
-      automaticallyImplyLeading: false,
-      elevation: 0,
-      flexibleSpace: FlexibleSpaceBar(
-        background: Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              colors: [
-                Color(0xFF1E3C72),
-                Color(0xFF2A4F8C),
-                Color(0xFFFF6B35),
-              ],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            borderRadius: BorderRadius.only(
-              bottomLeft: Radius.circular(32),
-              bottomRight: Radius.circular(32),
-            ),
+  Widget _buildMasterDataStatItem({
+    required IconData icon,
+    required String label,
+    required String value,
+    required Color valueColor,
+  }) {
+    return Column(
+      children: [
+        Icon(icon, color: Colors.white70, size: 18),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: valueColor,
           ),
         ),
-      ),
-      actions: [
-        if (_isRefreshing)
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 8),
-            child: SizedBox(
-              width: 22,
-              height: 22,
-              child: CircularProgressIndicator(
-                strokeWidth: 2.5,
-                color: Colors.white,
-              ),
-            ),
-          )
-        else
-          IconButton(
-            icon: const Icon(Icons.refresh_rounded, color: Colors.white, size: 22),
-            onPressed: _refreshData,
-            tooltip: 'Refresh data',
+        const SizedBox(height: 2),
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 9,
+            color: Colors.white70,
+            fontWeight: FontWeight.w500,
           ),
-        IconButton(
-          icon: const Icon(Icons.search_rounded, color: Colors.white, size: 22),
-          onPressed: () => _showSearchDialog(context),
-          tooltip: 'Cari',
         ),
-        PopupMenuButton<String>(
-          icon: Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.white, width: 2),
-              image: _userPhotoUrl != null && _userPhotoUrl!.isNotEmpty
-                  ? DecorationImage(
-                      image: NetworkImage(_userPhotoUrl!),
-                      fit: BoxFit.cover,
-                    )
-                  : null,
-            ),
-            child: _userPhotoUrl == null || _userPhotoUrl!.isEmpty
-                ? const Icon(Icons.person, color: Colors.white, size: 18)
-                : null,
-          ),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          offset: const Offset(0, 50),
-          onSelected: (value) {
-            switch (value) {
-              case 'profile':
-                Navigator.pushNamed(context, '/profile');
-                break;
-              case 'settings':
-                Navigator.pushNamed(context, '/settings');
-                break;
-              case 'logout':
-                _showLogoutConfirmation();
-                break;
-            }
-          },
-          itemBuilder: (context) => [
-            PopupMenuItem(
-              value: 'profile',
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(6),
-                    decoration: BoxDecoration(
-                      color: Colors.blue.withAlpha(26),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Icon(Icons.person_rounded, size: 16, color: Colors.blue),
-                  ),
-                  const SizedBox(width: 10),
-                  const Text('Profil Saya', style: TextStyle(fontSize: 13)),
-                ],
-              ),
-            ),
-            PopupMenuItem(
-              value: 'settings',
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(6),
-                    decoration: BoxDecoration(
-                      color: Colors.green.withAlpha(26),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Icon(Icons.settings_rounded, size: 16, color: Colors.green),
-                  ),
-                  const SizedBox(width: 10),
-                  const Text('Pengaturan', style: TextStyle(fontSize: 13)),
-                ],
-              ),
-            ),
-            const PopupMenuDivider(height: 1),
-            PopupMenuItem(
-              value: 'logout',
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(6),
-                    decoration: BoxDecoration(
-                      color: Colors.red.withAlpha(26),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Icon(Icons.logout_rounded, size: 16, color: Colors.red),
-                  ),
-                  const SizedBox(width: 10),
-                  const Text('Logout',
-                      style: TextStyle(fontSize: 13, color: Colors.red, fontWeight: FontWeight.w600)),
-                ],
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(width: 12),
       ],
     );
   }
+  // ================================================================
 
-  // ==================== LOGOUT BUTTON ====================
-  Widget _buildLogoutButton() {
+  // =========================
+  // HEADER CARD
+  // =========================
+
+  Widget _buildHeaderCard() {
+    final width =
+        MediaQuery.of(context).size.width;
+
+    final avatarSize =
+        width < 360 ? 46.0 : 52.0;
+
     return Container(
-      width: double.infinity,
-      height: 56,
+      padding: EdgeInsets.all(
+        width < 360 ? 14 : 18,
+      ),
+
       decoration: BoxDecoration(
+        borderRadius:
+            BorderRadius.circular(24),
+
         gradient: const LinearGradient(
-          colors: [Color(0xFFE53935), Color(0xFFFF6D00)],
-          begin: Alignment.centerLeft,
-          end: Alignment.centerRight,
+          colors: [
+            Color(0xFF0F172A),
+            Color(0xFF1E3A8A),
+            Color(0xFF2563EB),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
         ),
-        borderRadius: BorderRadius.circular(20),
+
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFFE53935).withAlpha(77),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
+            color: const Color(0xFF2563EB)
+                .withAlpha(50),
+            blurRadius: 24,
+            offset: const Offset(0, 8),
           ),
         ],
       ),
-      child: ElevatedButton(
-        onPressed: _showLogoutConfirmation,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.transparent,
-          shadowColor: Colors.transparent,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          padding: EdgeInsets.zero,
-        ),
-        child: const Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.logout_rounded, color: Colors.white, size: 22),
-            SizedBox(width: 10),
-            Text(
-              'Logout',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: Colors.white,
-                letterSpacing: 0.5,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 
-  // ==================== DIALOGS & ACTIONS ====================
-
-  void _showSearchDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Row(
-          children: [
-            Icon(Icons.search_rounded, color: AppColors.primaryBlue),
-            SizedBox(width: 8),
-            Text('Pencarian Global'),
-          ],
-        ),
-        content: const Text('Fitur pencarian global sedang dalam pengembangan.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Tutup'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showQuickActionsMenu(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => const QuickActionsMenu(),
-    );
-  }
-
-  void _showLogoutConfirmation() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        icon: const Icon(Icons.logout_rounded, size: 48, color: Colors.red),
-        title: const Text('Konfirmasi Logout'),
-        content: const Text(
-          'Apakah Anda yakin ingin keluar dari akun ini?',
-          textAlign: TextAlign.center,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Batal'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              _logout();
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            ),
-            child: const Text('Ya, Logout'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ==================== LOGOUT ====================
-  Future<void> _logout() async {
-    try {
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => PopScope(
-          canPop: false,
-          child: Center(
+      child: Stack(
+        children: [
+          Positioned(
+            top: -30,
+            right: -30,
             child: Container(
-              padding: const EdgeInsets.all(24),
+              width: 120,
+              height: 120,
+
               decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(20),
+                shape: BoxShape.circle,
+                color:
+                    Colors.white.withAlpha(
+                  18,
+                ),
               ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const CircularProgressIndicator(
-                    color: AppColors.primaryBlue,
+            ),
+          ),
+
+          Positioned(
+            bottom: -40,
+            left: -20,
+            child: Container(
+              width: 100,
+              height: 100,
+
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color:
+                    Colors.white.withAlpha(
+                  10,
+                ),
+              ),
+            ),
+          ),
+
+          Column(
+            crossAxisAlignment:
+                CrossAxisAlignment.start,
+            children: [
+              LayoutBuilder(
+                builder:
+                    (context, constraints) {
+                  return Row(
+                    crossAxisAlignment:
+                        CrossAxisAlignment
+                            .start,
+                    children: [
+                      Hero(
+                        tag: 'admin-avatar',
+
+                        child: Container(
+                          width: avatarSize,
+                          height: avatarSize,
+
+                          decoration:
+                              BoxDecoration(
+                            shape:
+                                BoxShape.circle,
+                            border: Border.all(
+                              color:
+                                  Colors.white,
+                              width: 2.5,
+                            ),
+                          ),
+
+                          child: CircleAvatar(
+                            backgroundColor:
+                                Colors.white,
+
+                            backgroundImage:
+                                (_userPhotoUrl !=
+                                            null &&
+                                        _userPhotoUrl!
+                                            .isNotEmpty)
+                                    ? NetworkImage(
+                                        _userPhotoUrl!,
+                                      )
+                                    : null,
+
+                            child:
+                                (_userPhotoUrl ==
+                                            null ||
+                                        _userPhotoUrl!
+                                            .isEmpty)
+                                    ? Text(
+                                        _userName
+                                                .isNotEmpty
+                                            ? _userName[
+                                                    0]
+                                                .toUpperCase()
+                                            : 'A',
+
+                                        style:
+                                            TextStyle(
+                                          color:
+                                              const Color(
+                                            0xFF1E3A8A,
+                                          ),
+                                          fontSize:
+                                              width <
+                                                      360
+                                                  ? 18
+                                                  : 20,
+                                          fontWeight:
+                                              FontWeight
+                                                  .bold,
+                                        ),
+                                      )
+                                    : null,
+                          ),
+                        ),
+                      ),
+
+                      const Spacer(),
+
+                      Flexible(
+                        child: Align(
+                          alignment:
+                              Alignment
+                                  .topRight,
+
+                          child:
+                              AnimatedContainer(
+                            duration:
+                                const Duration(
+                              milliseconds:
+                                  300,
+                            ),
+
+                            padding:
+                                const EdgeInsets
+                                    .all(12),
+
+                            decoration:
+                                BoxDecoration(
+                              color: Colors
+                                  .white
+                                  .withAlpha(
+                                      30),
+
+                              borderRadius:
+                                  BorderRadius
+                                      .circular(
+                                14,
+                              ),
+                            ),
+
+                            child:
+                                _isRefreshing
+                                    ? const SizedBox(
+                                        width:
+                                            18,
+                                        height:
+                                            18,
+
+                                        child:
+                                            CircularProgressIndicator(
+                                          strokeWidth:
+                                              2,
+                                          color:
+                                              Colors.white,
+                                        ),
+                                      )
+                                    : GestureDetector(
+                                        onTap:
+                                            _refreshData,
+
+                                        child:
+                                            const Icon(
+                                          Icons
+                                              .refresh_rounded,
+                                          color:
+                                              Colors.white,
+                                          size:
+                                              22,
+                                        ),
+                                      ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+
+              SizedBox(
+                  height:
+                      width < 360 ? 14 : 18),
+
+              Text(
+                _greeting,
+
+                maxLines: 2,
+                overflow:
+                    TextOverflow.ellipsis,
+
+                style: TextStyle(
+                  fontSize:
+                      width < 360 ? 18 : 22,
+
+                  fontWeight:
+                      FontWeight.bold,
+
+                  color: Colors.white,
+
+                  height: 1.2,
+                ),
+              ),
+
+              const SizedBox(height: 8),
+
+              Text(
+                _userName.isNotEmpty
+                    ? _userName
+                    : 'Super Administrator',
+
+                style: TextStyle(
+                  fontSize:
+                      width < 360 ? 12 : 13,
+
+                  color:
+                      Colors.white.withAlpha(
+                    220,
                   ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Sedang logout...',
-                    style: TextStyle(color: Colors.grey[700], fontSize: 13),
+
+                  fontWeight:
+                      FontWeight.w500,
+                ),
+              ),
+
+              const SizedBox(height: 10),
+
+              Text(
+                _getCorporateGreetingMessage(),
+
+                maxLines: 3,
+
+                overflow:
+                    TextOverflow.ellipsis,
+
+                style: TextStyle(
+                  fontSize:
+                      width < 360
+                          ? 11
+                          : 12.5,
+
+                  height: 1.5,
+
+                  color:
+                      Colors.white.withAlpha(
+                    210,
+                  ),
+
+                  fontWeight:
+                      FontWeight.w400,
+                ),
+              ),
+
+              const SizedBox(height: 16),
+
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  _buildHeaderBadge(
+                    icon: Icons
+                        .admin_panel_settings,
+
+                    label:
+                        _userRole.isNotEmpty
+                            ? _userRole
+                                .toUpperCase()
+                            : 'SUPERADMIN',
+                  ),
+
+                  _buildHeaderBadge(
+                    icon:
+                        Icons.verified_rounded,
+                    label: 'ACTIVE',
                   ),
                 ],
               ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHeaderBadge({
+    required IconData icon,
+    required String label,
+  }) {
+    return Container(
+      padding:
+          const EdgeInsets.symmetric(
+        horizontal: 12,
+        vertical: 7,
+      ),
+
+      decoration: BoxDecoration(
+        color:
+            Colors.white.withAlpha(28),
+
+        borderRadius:
+            BorderRadius.circular(30),
+
+        border: Border.all(
+          color: Colors.white24,
+        ),
+      ),
+
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            icon,
+            color: Colors.white,
+            size: 13,
+          ),
+
+          const SizedBox(width: 6),
+
+          Text(
+            label,
+
+            style: const TextStyle(
+              fontSize: 10,
+              fontWeight:
+                  FontWeight.w700,
+              color: Colors.white,
+              letterSpacing: 0.4,
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  // =========================
+  // LOADING SCREEN
+  // =========================
+
+  Widget _buildLoadingScreen() {
+    final size =
+        MediaQuery.of(context).size.width <
+                360
+            ? 72.0
+            : 90.0;
+
+    return Center(
+      child: Column(
+        mainAxisAlignment:
+            MainAxisAlignment.center,
+        children: [
+          Container(
+            width: size,
+            height: size,
+
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+
+              gradient:
+                  const LinearGradient(
+                colors: [
+                  Color(0xFF1E3A8A),
+                  Color(0xFF2563EB),
+                ],
+              ),
+
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(
+                          0xFF2563EB)
+                      .withAlpha(70),
+
+                  blurRadius: 30,
+                  spreadRadius: 2,
+                ),
+              ],
+            ),
+
+            child: Icon(
+              Icons.dashboard_rounded,
+              color: Colors.white,
+              size: size * 0.45,
+            ),
+          ),
+
+          const SizedBox(height: 24),
+
+          const Text(
+            'SUPER ADMIN',
+
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight:
+                  FontWeight.bold,
+              color: Color(0xFF1E3A8A),
+              letterSpacing: 2,
+            ),
+          ),
+
+          const SizedBox(height: 8),
+
+          const Text(
+            'Loading Dashboard...',
+
+            style: TextStyle(
+              fontSize: 12,
+              color: Colors.grey,
+            ),
+          ),
+
+          const SizedBox(height: 24),
+
+          const SizedBox(
+            width: 24,
+            height: 24,
+
+            child:
+                CircularProgressIndicator(
+              strokeWidth: 2.5,
+            ),
+          ),
+
+          if (_loadingMessage != null) ...[
+            const SizedBox(height: 14),
+
+            Text(
+              _loadingMessage!,
+
+              style: const TextStyle(
+                fontSize: 11,
+                color: Colors.grey,
+              ),
+            ),
+          ]
+        ],
+      ),
+    );
+  }
+
+  // =========================
+  // ERROR SCREEN
+  // =========================
+
+  Widget _buildErrorScreen(
+      String? errorMessage) {
+    return SafeArea(
+      child: Center(
+        child: Padding(
+          padding:
+              const EdgeInsets.all(24),
+
+          child: Column(
+            mainAxisAlignment:
+                MainAxisAlignment.center,
+
+            children: [
+              Container(
+                width: 90,
+                height: 90,
+
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+
+                  color: const Color(
+                          0xFF2563EB)
+                      .withAlpha(20),
+                ),
+
+                child: const Icon(
+                  Icons.wifi_off_rounded,
+                  size: 42,
+                  color: Color(0xFF2563EB),
+                ),
+              ),
+
+              const SizedBox(height: 20),
+
+              const Text(
+                'Gagal Memuat Dashboard',
+
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight:
+                      FontWeight.bold,
+                  color: Color(0xFF1E3A8A),
+                ),
+              ),
+
+              const SizedBox(height: 10),
+
+              Text(
+                errorMessage ??
+                    'Terjadi kesalahan saat memuat data.',
+
+                textAlign: TextAlign.center,
+
+                style: const TextStyle(
+                  color: Colors.grey,
+                  fontSize: 12,
+                ),
+              ),
+
+              const SizedBox(height: 28),
+
+              ElevatedButton.icon(
+                onPressed: () {
+                  context
+                      .read<DashboardProvider>()
+                      .clearCache();
+
+                  context
+                      .read<DashboardProvider>()
+                      .loadData();
+
+                  _loadGreetingAndProfile();
+                },
+
+                icon: const Icon(
+                  Icons.refresh_rounded,
+                  size: 18,
+                ),
+
+                label: const Text(
+                  'Muat Ulang',
+                ),
+
+                style:
+                    ElevatedButton.styleFrom(
+                  backgroundColor:
+                      const Color(
+                    0xFF1E3A8A,
+                  ),
+
+                  foregroundColor:
+                      Colors.white,
+
+                  minimumSize:
+                      const Size(
+                    double.infinity,
+                    52,
+                  ),
+
+                  padding:
+                      const EdgeInsets.symmetric(
+                    horizontal: 24,
+                    vertical: 14,
+                  ),
+
+                  shape:
+                      RoundedRectangleBorder(
+                    borderRadius:
+                        BorderRadius.circular(
+                      16,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
-      );
-
-      _heartbeatTimer?.cancel();
-      await _service.setUserOffline();
-
-      if (mounted) {
-        final provider = context.read<DashboardProvider>();
-        provider.clearCache();
-      }
-
-      await FirebaseAuth.instance.signOut();
-
-      if (mounted) {
-        Navigator.of(context).popUntil((route) => route.isFirst);
-        Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
-      }
-    } catch (e) {
-      if (mounted) {
-        Navigator.of(context).popUntil((route) => route.isFirst);
-        _showSnackBar('Gagal logout: ${e.toString()}', success: false);
-      }
-    }
+      ),
+    );
   }
 }
 
-// ==================== PROVIDER ====================
+// =========================
+// PROVIDER
+// =========================
 
-class DashboardProvider extends ChangeNotifier {
+class DashboardProvider
+    extends ChangeNotifier {
   final _service = DashboardService();
+
   bool isLoading = true;
+
   DashboardData? data;
+
   String? errorMessage;
 
   Future<void> loadData() async {
     isLoading = true;
+
     errorMessage = null;
+
     notifyListeners();
 
     try {
-      data = await _service.loadDashboardData();
+      data =
+          await _service.loadDashboardData();
     } catch (e) {
       errorMessage = e.toString();
     }
 
     isLoading = false;
+
     notifyListeners();
   }
 
   void clearCache() {
     _service.clearCache();
     data = null;
-  }
-}
-
-// ==================== QUICK ACTIONS MENU (FIXED) ====================
-
-class QuickActionsMenu extends StatelessWidget {
-  const QuickActionsMenu({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final bottomPadding = MediaQuery.of(context).padding.bottom;
-    
-    return ConstrainedBox(
-      constraints: BoxConstraints(
-        maxHeight: MediaQuery.of(context).size.height * 0.45,
-      ),
-      child: Container(
-        padding: EdgeInsets.fromLTRB(20, 20, 20, bottomPadding + 20),
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 40,
-              height: 5,
-              decoration: BoxDecoration(
-                color: Colors.grey[300],
-                borderRadius: BorderRadius.circular(3),
-              ),
-            ),
-            const SizedBox(height: 20),
-            const Text(
-              '⚡ Aksi Cepat',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 20),
-            Flexible(
-              child: GridView.count(
-                crossAxisCount: 2,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                mainAxisSpacing: 12,
-                crossAxisSpacing: 12,
-                childAspectRatio: 2.2,
-                children: [
-                  _buildQuickActionItem(
-                    context,
-                    icon: Icons.person_add_rounded,
-                    label: 'Tambah User',
-                    color: Colors.blue,
-                    onTap: () => Navigator.pop(context),
-                  ),
-                  _buildQuickActionItem(
-                    context,
-                    icon: Icons.campaign_rounded,
-                    label: 'Broadcast',
-                    color: Colors.orange,
-                    onTap: () => Navigator.pop(context),
-                  ),
-                  _buildQuickActionItem(
-                    context,
-                    icon: Icons.help_center_rounded,
-                    label: 'Kelola FAQ',
-                    color: Colors.purple,
-                    onTap: () => Navigator.pop(context),
-                  ),
-                  _buildQuickActionItem(
-                    context,
-                    icon: Icons.settings_rounded,
-                    label: 'Pengaturan',
-                    color: Colors.green,
-                    onTap: () => Navigator.pop(context),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildQuickActionItem(
-    BuildContext context, {
-    required IconData icon,
-    required String label,
-    required Color color,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(14),
-      child: Container(
-        decoration: BoxDecoration(
-          color: color.withAlpha(20),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: color.withAlpha(51)),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, color: color, size: 18),
-            const SizedBox(width: 8),
-            Flexible(
-              child: Text(
-                label,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: color,
-                ),
-                overflow: TextOverflow.ellipsis,
-                maxLines: 1,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
   }
 }

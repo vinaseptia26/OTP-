@@ -1,11 +1,8 @@
 // lib/features/pengawas/lembur/widgets/location_picker.dart
-
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:latlong2/latlong.dart';
-
-import '../../../../core/services/location_service.dart';
+import '/core/services/location_service.dart';
 
 class LocationPicker extends StatefulWidget {
   final Function(LatLng, String) onLocationSelected;
@@ -34,9 +31,9 @@ class _LocationPickerState extends State<LocationPicker> {
 
   String _locationChoice = 'kantor';
 
-  static const double _kantorLat = -7.134711;
-  static const double _kantorLng = 107.799540;
-  static const double _radiusKantor = 300;
+  static const double _kantorLat = LocationService.kantorLat;
+  static const double _kantorLng = LocationService.kantorLng;
+  static const double _radiusKantor = LocationService.radiusKantor;
 
   @override
   void initState() {
@@ -45,8 +42,15 @@ class _LocationPickerState extends State<LocationPicker> {
     _loadRecommendedLocations();
   }
 
+  @override
+  void dispose() {
+    _searchController.dispose();
+    _mapController.dispose();
+    super.dispose();
+  }
+
   void _setDefaultLocation() {
-    _selectedLocation = LatLng(_kantorLat, _kantorLng);
+    _selectedLocation = const LatLng(_kantorLat, _kantorLng);
     _selectedAddress = LocationService.alamatKantor;
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -55,13 +59,10 @@ class _LocationPickerState extends State<LocationPicker> {
   }
 
   Future<void> _loadRecommendedLocations() async {
-    setState(() {
-      _isLoadingRecommendations = true;
-    });
+    setState(() => _isLoadingRecommendations = true);
 
     try {
       final recommendations = await LocationService.getRecommendedLocations();
-      
       if (mounted) {
         setState(() {
           _recommendedLocations = recommendations;
@@ -71,9 +72,7 @@ class _LocationPickerState extends State<LocationPicker> {
     } catch (e) {
       debugPrint('Error loading recommendations: $e');
       if (mounted) {
-        setState(() {
-          _isLoadingRecommendations = false;
-        });
+        setState(() => _isLoadingRecommendations = false);
       }
     }
   }
@@ -87,7 +86,7 @@ class _LocationPickerState extends State<LocationPicker> {
   void _selectKantor() {
     setState(() {
       _locationChoice = 'kantor';
-      _selectedLocation = LatLng(_kantorLat, _kantorLng);
+      _selectedLocation = const LatLng(_kantorLat, _kantorLng);
       _selectedAddress = LocationService.alamatKantor;
     });
 
@@ -103,10 +102,10 @@ class _LocationPickerState extends State<LocationPicker> {
     setState(() {
       _locationChoice = 'recommended';
       _selectedLocation = LatLng(
-        location['lat'],
-        location['lng'],
+        (location['lat'] as num).toDouble(),
+        (location['lng'] as num).toDouble(),
       );
-      _selectedAddress = location['address'];
+      _selectedAddress = location['address'] as String? ?? '';
     });
 
     _moveMapToLocation();
@@ -118,20 +117,17 @@ class _LocationPickerState extends State<LocationPicker> {
   }
 
   Future<void> _getCurrentLocation() async {
-    setState(() {
-      _isSearching = true;
-    });
+    setState(() => _isSearching = true);
 
     try {
-      final isFake = await LocationService.detectFakeGPS();
+      // ✅ Perbaikan: detectFakeGPS sekarang return Map
+      final fakeCheck = await LocationService.detectFakeGPS();
+      final isFake = fakeCheck['is_fake'] == true;
 
       if (isFake) {
         final confirm = await _showFakeGpsDialog();
-
         if (!confirm) {
-          setState(() {
-            _isSearching = false;
-          });
+          setState(() => _isSearching = false);
           return;
         }
       }
@@ -149,8 +145,7 @@ class _LocationPickerState extends State<LocationPicker> {
             position.latitude,
             position.longitude,
           );
-
-          _selectedAddress = address['address'];
+          _selectedAddress = address['address'] as String? ?? '';
           _locationChoice = 'custom';
           _isSearching = false;
         });
@@ -162,19 +157,12 @@ class _LocationPickerState extends State<LocationPicker> {
           _selectedAddress!,
         );
       } else {
-        setState(() {
-          _isSearching = false;
-        });
-
+        setState(() => _isSearching = false);
         _showErrorDialog();
       }
     } catch (e) {
       debugPrint("Error GPS: $e");
-
-      setState(() {
-        _isSearching = false;
-      });
-
+      setState(() => _isSearching = false);
       _showErrorDialog();
     }
   }
@@ -185,13 +173,10 @@ class _LocationPickerState extends State<LocationPicker> {
         _searchResults = [];
         _isSearching = false;
       });
-
       return;
     }
 
-    setState(() {
-      _isSearching = true;
-    });
+    setState(() => _isSearching = true);
 
     try {
       final results = await LocationService.searchLocation(query);
@@ -202,29 +187,22 @@ class _LocationPickerState extends State<LocationPicker> {
           _isSearching = false;
         });
       } else {
-        setState(() {
-          _isSearching = false;
-        });
+        setState(() => _isSearching = false);
       }
     } catch (e) {
-      setState(() {
-        _isSearching = false;
-      });
+      setState(() => _isSearching = false);
     }
   }
 
   void _selectSearchResult(Map<String, dynamic> result) {
     setState(() {
       _selectedLocation = LatLng(
-        result['lat'],
-        result['lng'],
+        (result['lat'] as num).toDouble(),
+        (result['lng'] as num).toDouble(),
       );
-
-      _selectedAddress = result['address'];
+      _selectedAddress = result['address'] as String? ?? '';
       _locationChoice = 'custom';
-
       _searchResults = [];
-
       _searchController.clear();
     });
 
@@ -238,7 +216,6 @@ class _LocationPickerState extends State<LocationPicker> {
 
   bool get _isOutsideRadius {
     if (_selectedLocation == null) return false;
-
     return LocationService.isOutsideRadius(
       _selectedLocation!.latitude,
       _selectedLocation!.longitude,
@@ -247,13 +224,20 @@ class _LocationPickerState extends State<LocationPicker> {
 
   double get _distanceFromKantor {
     if (_selectedLocation == null) return 0;
-
     return LocationService.calculateDistance(
       _kantorLat,
       _kantorLng,
       _selectedLocation!.latitude,
       _selectedLocation!.longitude,
     );
+  }
+
+  String get _distanceFormatted {
+    final distance = _distanceFromKantor;
+    if (distance >= 1000) {
+      return '${(distance / 1000).toStringAsFixed(1)} km';
+    }
+    return '${distance.toStringAsFixed(0)} m';
   }
 
   @override
@@ -265,7 +249,7 @@ class _LocationPickerState extends State<LocationPicker> {
         borderRadius: BorderRadius.circular(18),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 0.05), // ✅ Fix deprecated
             blurRadius: 10,
             offset: const Offset(0, 2),
           ),
@@ -301,7 +285,7 @@ class _LocationPickerState extends State<LocationPicker> {
         Container(
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
-            color: const Color(0xFF1976D2).withOpacity(0.1),
+            color: const Color(0xFF1976D2).withValues(alpha: 0.1), // ✅ Fix
             borderRadius: BorderRadius.circular(10),
           ),
           child: const Icon(
@@ -310,9 +294,9 @@ class _LocationPickerState extends State<LocationPicker> {
           ),
         ),
         const SizedBox(width: 10),
-        Text(
+        const Text(
           "Lokasi Lembur",
-          style: GoogleFonts.poppins(
+          style: TextStyle(
             fontSize: 16,
             fontWeight: FontWeight.w700,
           ),
@@ -332,6 +316,15 @@ class _LocationPickerState extends State<LocationPicker> {
             onTap: _selectKantor,
           ),
         ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: _buildOptionButton(
+            icon: Icons.gps_fixed,
+            label: "GPS",
+            isSelected: _locationChoice == 'custom' || _locationChoice == 'recommended',
+            onTap: _getCurrentLocation,
+          ),
+        ),
       ],
     );
   }
@@ -348,8 +341,7 @@ class _LocationPickerState extends State<LocationPicker> {
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 12),
         decoration: BoxDecoration(
-          color:
-              isSelected ? const Color(0xFF1976D2) : Colors.white,
+          color: isSelected ? const Color(0xFF1976D2) : Colors.white,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: const Color(0xFF1976D2),
@@ -360,19 +352,15 @@ class _LocationPickerState extends State<LocationPicker> {
           children: [
             Icon(
               icon,
-              color: isSelected
-                  ? Colors.white
-                  : const Color(0xFF1976D2),
+              color: isSelected ? Colors.white : const Color(0xFF1976D2),
             ),
             const SizedBox(height: 5),
             Text(
               label,
-              style: GoogleFonts.poppins(
+              style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
-                color: isSelected
-                    ? Colors.white
-                    : const Color(0xFF1976D2),
+                color: isSelected ? Colors.white : const Color(0xFF1976D2),
               ),
             ),
           ],
@@ -398,20 +386,16 @@ class _LocationPickerState extends State<LocationPicker> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
+        const Row(
           children: [
-            const Icon(
-              Icons.history,
-              size: 16,
-              color: Color(0xFF1976D2),
-            ),
-            const SizedBox(width: 6),
+            Icon(Icons.history, size: 16, color: Color(0xFF1976D2)),
+            SizedBox(width: 6),
             Text(
               "Lokasi yang sering dipakai",
-              style: GoogleFonts.poppins(
+              style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
-                color: const Color(0xFF1976D2),
+                color: Color(0xFF1976D2),
               ),
             ),
           ],
@@ -425,10 +409,11 @@ class _LocationPickerState extends State<LocationPicker> {
             separatorBuilder: (_, __) => const SizedBox(width: 8),
             itemBuilder: (context, index) {
               final location = _recommendedLocations[index];
-              final isSelected = _locationChoice == 'recommended' &&
-                  _selectedLocation?.latitude == location['lat'] &&
-                  _selectedLocation?.longitude == location['lng'];
-              
+              final locLat = (location['lat'] as num?)?.toDouble() ?? 0;
+              final locLng = (location['lng'] as num?)?.toDouble() ?? 0;
+              final isSelected = _selectedLocation?.latitude == locLat &&
+                  _selectedLocation?.longitude == locLng;
+
               return GestureDetector(
                 onTap: () => _selectRecommendedLocation(location),
                 child: Container(
@@ -436,7 +421,7 @@ class _LocationPickerState extends State<LocationPicker> {
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
                     color: isSelected
-                        ? const Color(0xFF1976D2).withOpacity(0.1)
+                        ? const Color(0xFF1976D2).withValues(alpha: 0.1) // ✅ Fix
                         : Colors.grey.shade50,
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(
@@ -458,11 +443,11 @@ class _LocationPickerState extends State<LocationPicker> {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        location['name'],
+                        location['name']?.toString() ?? '',
                         textAlign: TextAlign.center,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: GoogleFonts.poppins(
+                        style: TextStyle(
                           fontSize: 9,
                           fontWeight: FontWeight.w500,
                           color: isSelected
@@ -494,9 +479,7 @@ class _LocationPickerState extends State<LocationPicker> {
                 child: SizedBox(
                   width: 18,
                   height: 18,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                  ),
+                  child: CircularProgressIndicator(strokeWidth: 2),
                 ),
               )
             : null,
@@ -504,22 +487,15 @@ class _LocationPickerState extends State<LocationPicker> {
         fillColor: const Color(0xFFF8FAFF),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(
-            color: Color(0xFFE2E8F0),
-          ),
+          borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(
-            color: Color(0xFFE2E8F0),
-          ),
+          borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(
-            color: Color(0xFF1976D2),
-            width: 2,
-          ),
+          borderSide: const BorderSide(color: Color(0xFF1976D2), width: 2),
         ),
       ),
     );
@@ -532,9 +508,7 @@ class _LocationPickerState extends State<LocationPicker> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: const Color(0xFFE2E8F0),
-        ),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
       ),
       child: ListView.separated(
         shrinkWrap: true,
@@ -542,27 +516,19 @@ class _LocationPickerState extends State<LocationPicker> {
         separatorBuilder: (_, __) => const Divider(height: 0),
         itemBuilder: (context, index) {
           final result = _searchResults[index];
-
           return ListTile(
-            leading: const Icon(
-              Icons.place,
-              color: Color(0xFF1976D2),
-            ),
+            leading: const Icon(Icons.place, color: Color(0xFF1976D2)),
             title: Text(
-              result['name'],
-              style: GoogleFonts.poppins(
-                fontWeight: FontWeight.w600,
-              ),
+              result['name']?.toString() ?? '',
+              style: const TextStyle(fontWeight: FontWeight.w600),
             ),
             subtitle: Text(
-              result['address'],
+              result['address']?.toString() ?? '',
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: GoogleFonts.poppins(fontSize: 11),
+              style: const TextStyle(fontSize: 11),
             ),
-            onTap: () {
-              _selectSearchResult(result);
-            },
+            onTap: () => _selectSearchResult(result),
           );
         },
       ),
@@ -573,36 +539,23 @@ class _LocationPickerState extends State<LocationPicker> {
     return SizedBox(
       width: double.infinity,
       child: OutlinedButton.icon(
-        onPressed:
-            _isSearching ? null : _getCurrentLocation,
+        onPressed: _isSearching ? null : _getCurrentLocation,
         icon: _isSearching
             ? const SizedBox(
                 width: 16,
                 height: 16,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                ),
+                child: CircularProgressIndicator(strokeWidth: 2),
               )
             : const Icon(Icons.gps_fixed),
         label: Text(
-          _isSearching
-              ? "Mengambil lokasi..."
-              : "Gunakan GPS Saat Ini",
-          style: GoogleFonts.poppins(
-            fontWeight: FontWeight.w600,
-          ),
+          _isSearching ? "Mengambil lokasi..." : "Gunakan GPS Saat Ini",
+          style: const TextStyle(fontWeight: FontWeight.w600),
         ),
         style: OutlinedButton.styleFrom(
           foregroundColor: const Color(0xFF1976D2),
-          side: const BorderSide(
-            color: Color(0xFF1976D2),
-          ),
-          padding: const EdgeInsets.symmetric(
-            vertical: 13,
-          ),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
+          side: const BorderSide(color: Color(0xFF1976D2)),
+          padding: const EdgeInsets.symmetric(vertical: 13),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         ),
       ),
     );
@@ -613,53 +566,42 @@ class _LocationPickerState extends State<LocationPicker> {
       height: 280,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: const Color(0xFFE2E8F0),
-        ),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(16),
         child: FlutterMap(
           mapController: _mapController,
           options: MapOptions(
-            initialCenter: _selectedLocation ??
-                LatLng(_kantorLat, _kantorLng),
+            initialCenter: _selectedLocation ?? const LatLng(_kantorLat, _kantorLng),
             initialZoom: 16,
             onTap: (_, point) {
               setState(() {
                 _selectedLocation = point;
                 _locationChoice = 'custom';
               });
-
               _getAddressFromLocation();
             },
           ),
           children: [
             TileLayer(
-              urlTemplate:
-                  "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
-              userAgentPackageName:
-                  'com.example.project_otp_kmj',
+              urlTemplate: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+              userAgentPackageName: 'com.pge.overtimeapp',
             ),
-
+            // Radius kantor circle
             CircleLayer(
               circles: [
                 CircleMarker(
-                  point: LatLng(
-                    _kantorLat,
-                    _kantorLng,
-                  ),
+                  point: const LatLng(_kantorLat, _kantorLng),
                   radius: _radiusKantor,
                   useRadiusInMeter: true,
-                  color: const Color(0xFF1976D2)
-                      .withOpacity(0.15),
+                  color: const Color(0xFF1976D2).withValues(alpha: 0.15), // ✅ Fix
                   borderStrokeWidth: 2,
-                  borderColor:
-                      const Color(0xFF1976D2),
+                  borderColor: const Color(0xFF1976D2),
                 ),
               ],
             ),
-
+            // Selected location marker
             if (_selectedLocation != null)
               MarkerLayer(
                 markers: [
@@ -672,47 +614,25 @@ class _LocationPickerState extends State<LocationPicker> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(
-                          _isOutsideRadius
-                              ? Icons.warning
-                              : Icons.location_pin,
-                          color: _isOutsideRadius
-                              ? Colors.orange
-                              : Colors.red,
+                          _isOutsideRadius ? Icons.warning : Icons.location_pin,
+                          color: _isOutsideRadius ? Colors.orange : Colors.red,
                           size: 34,
                         ),
-
                         const SizedBox(height: 2),
-
                         Container(
-                          padding:
-                              const EdgeInsets.symmetric(
-                            horizontal: 6,
-                            vertical: 2,
-                          ),
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                           decoration: BoxDecoration(
                             color: Colors.white,
-                            borderRadius:
-                                BorderRadius.circular(6),
+                            borderRadius: BorderRadius.circular(6),
                             boxShadow: const [
-                              BoxShadow(
-                                color: Colors.black26,
-                                blurRadius: 2,
-                              ),
+                              BoxShadow(color: Colors.black26, blurRadius: 2),
                             ],
                           ),
                           child: Text(
-                            _isOutsideRadius
-                                ? "Luar Radius"
-                                : "Lokasi",
+                            _isOutsideRadius ? "Luar Radius" : "Lokasi",
                             textAlign: TextAlign.center,
-                            overflow:
-                                TextOverflow.ellipsis,
-                            style:
-                                GoogleFonts.poppins(
-                              fontSize: 8,
-                              fontWeight:
-                                  FontWeight.w600,
-                            ),
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 8, fontWeight: FontWeight.w600),
                           ),
                         ),
                       ],
@@ -731,49 +651,36 @@ class _LocationPickerState extends State<LocationPicker> {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: _isOutsideRadius
-            ? Colors.orange.withOpacity(0.1)
+            ? Colors.orange.withValues(alpha: 0.1) // ✅ Fix
             : const Color(0xFFF8FAFF),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: _isOutsideRadius
-              ? Colors.orange
-              : const Color(0xFFE2E8F0),
+          color: _isOutsideRadius ? Colors.orange : const Color(0xFFE2E8F0),
         ),
       ),
       child: Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
               Icon(
-                _isOutsideRadius
-                    ? Icons.warning_amber
-                    : Icons.location_on,
-                color: _isOutsideRadius
-                    ? Colors.orange
-                    : const Color(0xFF1976D2),
+                _isOutsideRadius ? Icons.warning_amber : Icons.location_on,
+                color: _isOutsideRadius ? Colors.orange : const Color(0xFF1976D2),
               ),
               const SizedBox(width: 8),
-
               Expanded(
                 child: Text(
-                  _selectedAddress ??
-                      "Memuat alamat...",
-                  style: GoogleFonts.poppins(
-                    fontSize: 12,
-                  ),
+                  _selectedAddress ?? "Memuat alamat...",
+                  style: const TextStyle(fontSize: 12),
                 ),
               ),
             ],
           ),
-
           if (_isOutsideRadius) ...[
             const SizedBox(height: 6),
             Text(
-              "⚠️ Lokasi berada di luar radius kantor "
-              "(${(_distanceFromKantor / 1000).toStringAsFixed(1)} km)",
-              style: GoogleFonts.poppins(
+              "⚠️ Lokasi berada di luar radius kantor ($_distanceFormatted)",
+              style: TextStyle(
                 fontSize: 11,
                 fontWeight: FontWeight.w600,
                 color: Colors.orange.shade800,
@@ -788,15 +695,14 @@ class _LocationPickerState extends State<LocationPicker> {
   Future<void> _getAddressFromLocation() async {
     if (_selectedLocation == null) return;
 
-    final address =
-        await LocationService.reverseGeocode(
+    final address = await LocationService.reverseGeocode(
       _selectedLocation!.latitude,
       _selectedLocation!.longitude,
     );
 
     if (address != null && mounted) {
       setState(() {
-        _selectedAddress = address['address'];
+        _selectedAddress = address['address'] as String? ?? '';
       });
 
       widget.onLocationSelected(
@@ -811,27 +717,19 @@ class _LocationPickerState extends State<LocationPicker> {
           context: context,
           builder: (context) {
             return AlertDialog(
-              title: const Text(
-                "⚠️ Fake GPS Terdeteksi",
-              ),
+              title: const Text("⚠️ Fake GPS Terdeteksi"),
               content: const Text(
                 "Sistem mendeteksi penggunaan Fake GPS.\n\n"
                 "Apakah Anda ingin melanjutkan?",
               ),
               actions: [
                 TextButton(
-                  onPressed: () {
-                    Navigator.pop(context, false);
-                  },
+                  onPressed: () => Navigator.pop(context, false),
                   child: const Text("BATAL"),
                 ),
                 ElevatedButton(
-                  onPressed: () {
-                    Navigator.pop(context, true);
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.red,
-                  ),
+                  onPressed: () => Navigator.pop(context, true),
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
                   child: const Text("LANJUTKAN"),
                 ),
               ],
@@ -847,25 +745,15 @@ class _LocationPickerState extends State<LocationPicker> {
       builder: (context) {
         return AlertDialog(
           title: const Text("❌ Gagal"),
-          content: const Text(
-            "Tidak dapat mendapatkan lokasi GPS.",
-          ),
+          content: const Text("Tidak dapat mendapatkan lokasi GPS."),
           actions: [
             TextButton(
-              onPressed: () {
-                Navigator.pop(context);
-              },
+              onPressed: () => Navigator.pop(context),
               child: const Text("TUTUP"),
             ),
           ],
         );
       },
     );
-  }
-
-  @override
-  void dispose() {
-    _searchController.dispose();
-    super.dispose();
   }
 }
